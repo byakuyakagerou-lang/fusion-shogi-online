@@ -148,6 +148,38 @@
             padding: 15px; display: flex; flex-direction: column; align-items: center; color: #fff;
             box-shadow: 0 5px 15px rgba(0,0,0,0.5); box-sizing: border-box;
         }
+
+        /* --- カスタムUIモーダル --- */
+        .custom-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 10000; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .custom-modal.active {
+            opacity: 1; pointer-events: auto;
+        }
+        .custom-modal-content {
+            background: linear-gradient(135deg, rgba(20,25,35,0.95) 0%, rgba(10,15,20,0.95) 100%);
+            border: 1px solid rgba(241, 196, 15, 0.5);
+            border-radius: 8px; padding: 30px 40px;
+            text-align: center; color: #fff;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            max-width: 80%; min-width: 320px;
+            transform: translateY(-20px);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .custom-modal.active .custom-modal-content {
+            transform: translateY(0);
+        }
+        #custom-modal-text {
+            font-size: 18px; line-height: 1.6; margin-bottom: 25px;
+            font-weight: bold; letter-spacing: 0.05em;
+        }
+        .custom-modal-buttons {
+            display: flex; justify-content: center; gap: 15px;
+        }
         #screen-deck .detail-panel { flex-direction: row; max-width: 600px; align-items: center; }
         .detail-hidden { display: none !important; }
         .detail-img-area { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 10px; }
@@ -372,6 +404,17 @@
                 </div>
             </div>
 
+            <!-- カスタムモーダル -->
+            <div id="custom-modal" class="custom-modal">
+                <div class="custom-modal-content">
+                    <div id="custom-modal-text"></div>
+                    <div class="custom-modal-buttons">
+                        <button id="custom-modal-ok" class="btn-luxury" style="padding: 10px 30px; font-size: 16px; min-width: 120px;">決定</button>
+                        <button id="custom-modal-cancel" class="btn-luxury btn-danger" style="padding: 10px 30px; font-size: 16px; min-width: 120px;">キャンセル</button>
+                    </div>
+                </div>
+            </div>
+
 <script>
 /* ================= 全体設定 ================= */
 const BOARD_SIZE = 9;
@@ -395,6 +438,28 @@ let isAnimating = false;
 const socket = io();
 let myRole = null;
 let isOnlineMatch = false;
+
+const AppUI = {
+    alert: function(msg) {
+        return new Promise(resolve => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('custom-modal-text').innerText = msg;
+            document.getElementById('custom-modal-cancel').style.display = 'none';
+            modal.classList.add('active');
+            document.getElementById('custom-modal-ok').onclick = () => { playSE('click'); modal.classList.remove('active'); resolve(); };
+        });
+    },
+    confirm: function(msg) {
+        return new Promise(resolve => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('custom-modal-text').innerText = msg;
+            document.getElementById('custom-modal-cancel').style.display = 'inline-block';
+            modal.classList.add('active');
+            document.getElementById('custom-modal-ok').onclick = () => { playSE('click'); modal.classList.remove('active'); resolve(true); };
+            document.getElementById('custom-modal-cancel').onclick = () => { playSE('click'); modal.classList.remove('active'); resolve(false); };
+        });
+    }
+};
 
 const PIECE_DEF = {
     // === 正規軍（王宮騎士団） ===
@@ -619,7 +684,7 @@ function renderDeckEditor() {
             if (holdingPieceType && !type) cell.classList.add('highlight'); 
             if (type) cell.appendChild(createPieceElement({type: type, owner: SENTE})); 
             
-            cell.onclick = () => { 
+            cell.onclick = async () => { 
                 if (holdingPieceType) {
                     // 王の一枚制限チェック
                     if (holdingPieceType === 'ou' || holdingPieceType === 'h_ou') {
@@ -627,7 +692,7 @@ function renderDeckEditor() {
                         const targetIsKing = (currentFormation[y][x] === 'ou' || currentFormation[y][x] === 'h_ou');
                         
                         if (alreadyHasKing && !targetIsKing) {
-                            alert("王は一枚しか編成できません。");
+                            await AppUI.alert("王は一枚しか編成できません。");
                             return;
                         }
                     }
@@ -647,8 +712,8 @@ function renderInventory() { const container = document.getElementById('inventor
 function checkCostAndKing() { let totalCost = 0; let hasKing = false; for(let row of currentFormation) for(let type of row) if(type) { totalCost += PIECE_DEF[type].cost; if(type === 'ou' || type === 'h_ou') hasKing = true; } const meter = document.getElementById('deck-cost'); meter.innerText = `Cost: ${totalCost} / ${MAX_COST}`; meter.className = 'cost-meter ' + (totalCost <= MAX_COST ? 'cost-ok' : 'cost-over'); const btn = document.getElementById('btn-battle-start'); btn.disabled = !(totalCost <= MAX_COST && hasKing); btn.innerText = !hasKing ? "王が必要です" : (totalCost > MAX_COST ? "コスト超過" : "OFFLINE BATTLE"); const btnOnline = document.getElementById('btn-battle-online'); if(btnOnline){ btnOnline.disabled = !(totalCost <= MAX_COST && hasKing); btnOnline.innerText = !hasKing ? "王が必要です" : (totalCost > MAX_COST ? "コスト超過" : "ONLINE MATCH"); } }
 function gotoShop() { switchScreen('screen-shop'); updateGoldUI(); document.getElementById('gacha-result').innerHTML = ''; }
 
-function buyPack() {
-    if (SaveManager.data.gold < PACK_PRICE) { alert("お金が足りません！"); return; }
+async function buyPack() {
+    if (SaveManager.data.gold < PACK_PRICE) { await AppUI.alert("お金が足りません！"); return; }
     const pack = document.getElementById('pack-obj');
     pack.classList.add('gacha-shaking');
     setTimeout(() => {
@@ -711,26 +776,26 @@ socket.on('gameStart', (data) => {
     document.getElementById('battle-log').innerHTML = '';
 });
 
-socket.on('opponentDisconnected', () => {
-    alert('対戦相手との通信が切断されました。');
+socket.on('opponentDisconnected', async () => {
+    await AppUI.alert('対戦相手との通信が切断されました。');
     switchScreen('screen-title');
 });
 
-socket.on('opponentAction', (action) => {
+socket.on('opponentAction', async (action) => {
     if (action.type === 'move') {
         const { fx, fy, tx, ty } = action.data;
-        window.tryMove(fx, fy, tx, ty, true);
+        await window.tryMove(fx, fy, tx, ty, true);
         endTurn();
     } else if (action.type === 'drop') {
-        window.tryDrop(action.data.handIndex, action.data.tx, action.data.ty, true);
+        await window.tryDrop(action.data.handIndex, action.data.tx, action.data.ty, true);
         endTurn();
     } else if (action.type === 'skill_immediate') {
         const p = board[action.data.sy][action.data.sx];
         skillSource = {x: action.data.sx, y: action.data.sy};
-        executeSkillImmediate(p, PIECE_DEF[p.type].skill);
+        await executeSkillImmediate(p, PIECE_DEF[p.type].skill);
     } else if (action.type === 'skill_target') {
         skillSource = {x: action.data.sx, y: action.data.sy};
-        executeSkillTarget(action.data.tx, action.data.ty);
+        await executeSkillTarget(action.data.tx, action.data.ty);
     }
 });
 function initGame() { const aiSetup = [['ky','ke','gi','ki','ou','ki','gi','ke','ky'],[null,'hi',null,null,null,null,null,'ka',null],['fu','fu','fu','fu','fu','fu','fu','fu','fu']]; const playerSetup = SaveManager.data.deck; board = []; hands = { [SENTE]: [], [GOTE]: [] }; for (let y = 0; y < 3; y++) { let row = []; for (let x = 0; x < 9; x++) { let t = aiSetup[y][x]; row.push(t ? { type: t, owner: GOTE, isEvolved: false, sourceTypes: [t] } : null); } board.push(row); } for (let y = 3; y < 6; y++) { let row = []; for (let x = 0; x < 9; x++) row.push(null); board.push(row); } for (let y = 0; y < 3; y++) { let row = []; for (let x = 0; x < 9; x++) { let t = playerSetup[y][x]; row.push(t ? { type: t, owner: SENTE, isEvolved: !!EVOLVED_MOVES[t], sourceTypes: [t] } : null); } board.push(row); } turn = SENTE; selected = null; possibleMoves = []; lastMove = null; isGameOver = false; updateStatus("対局開始"); updateTurnDisplay(); render(); }
@@ -804,7 +869,7 @@ function renderHand(owner) {
     });
 }
 
-function onCellClick(x, y) {
+async function onCellClick(x, y) {
     const allowedTurn = isOnlineMatch ? myRole : SENTE;
     if (isGameOver || turn !== allowedTurn || isAnimating) return;
     const targetPiece = board[y][x];
@@ -817,8 +882,8 @@ function onCellClick(x, y) {
             selected = { type: 'board', x, y }; updatePossibleMoves(board[y][x], x, y); render(); return;
         }
         let success = false;
-        if (selected.type === 'board') success = tryMove(selected.x, selected.y, x, y, false);
-        else if (selected.type === 'hand') success = tryDrop(selected.index, x, y, false);
+        if (selected.type === 'board') success = await tryMove(selected.x, selected.y, x, y, false);
+        else if (selected.type === 'hand') success = await tryDrop(selected.index, x, y, false);
         if (success) endTurn();
         return;
     }
@@ -871,7 +936,7 @@ function getFusionRecipe(typeA, typeB) {
     
     return null; 
 }
-function tryMove(fx, fy, tx, ty, isAI) {
+async function tryMove(fx, fy, tx, ty, isAI) {
     const piece = board[fy][fx], target = board[ty][tx], check = checkMoveOrFusion(piece, fx, fy, tx, ty);
     if (!check.canMove) return false;
     
@@ -914,7 +979,7 @@ function tryMove(fx, fy, tx, ty, isAI) {
         let promote = false;
         if (!didAwaken && !piece.isEvolved && PIECE_DEF[piece.type].type !== 'variant') {
             const inZone = (turn === SENTE && ty <= 2) || (turn === GOTE && ty >= 6) || (turn === SENTE && fy <= 2) || (turn === GOTE && fy >= 6);
-            if (inZone && PROMOTION_MAP[piece.type]) promote = isAI ? true : confirm("成りますか？");
+            if (inZone && PROMOTION_MAP[piece.type]) promote = isAI ? true : await AppUI.confirm("成りますか？");
         }
         if (promote) piece.type = PROMOTION_MAP[piece.type];
         
@@ -925,7 +990,7 @@ function tryMove(fx, fy, tx, ty, isAI) {
     selected = null; possibleMoves = [];
     return true;
 }
-function tryDrop(handIndex, tx, ty, isAI) {
+async function tryDrop(handIndex, tx, ty, isAI) {
     const type = hands[turn][handIndex], target = board[ty][tx], check = checkDropOrFusion(type, tx, ty);
     if (!check.canDrop) return false;
     if (check.isFusion) {
@@ -945,14 +1010,14 @@ function capturePiece(target) {
     target.sourceTypes.forEach(t => { let ct = UN_PROMOTION_MAP[t] || t; hands[turn].push(ct); }); 
 }
 
-function endTurn() {
+async function endTurn() {
     if (isAnimating) { setTimeout(endTurn, 100); return; }
     let senteK = false, goteK = false;
     for(let y=0; y<BOARD_SIZE; y++) for(let x=0; x<BOARD_SIZE; x++) {
         const p = board[y][x]; if(p && (p.type==='ou'||p.type==='h_ou')) { if(p.owner===SENTE) senteK=true; else goteK=true; }
     }
-    if(!senteK) { alert("敗北..."); switchScreen('screen-title'); return; }
-    if(!goteK) { alert("勝利！ +150G"); SaveManager.addGold(150); switchScreen('screen-title'); return; }
+    if(!senteK) { await AppUI.alert("敗北..."); switchScreen('screen-title'); return; }
+    if(!goteK) { await AppUI.alert("勝利！ +150G"); SaveManager.addGold(150); switchScreen('screen-title'); return; }
     turn = (turn === SENTE) ? GOTE : SENTE;
     for(let row of board) for(let p of row) if(p && p.owner === turn) p.isInvincible = false;
     updateTurnDisplay();
@@ -986,7 +1051,7 @@ function isAttackedByPlayer(tx, ty) {
     return false;
 }
 
-function aiMove() {
+async function aiMove() {
     if (isGameOver || isAnimating) return;
 
     const candidates = [];
@@ -1065,9 +1130,9 @@ function aiMove() {
         const best = candidates[0]; 
 
         if (best.isDrop) {
-            tryDrop(best.handIndex, best.tx, best.ty, true);
+            await tryDrop(best.handIndex, best.tx, best.ty, true);
         } else {
-            tryMove(best.fx, best.fy, best.tx, best.ty, true);
+            await tryMove(best.fx, best.fy, best.tx, best.ty, true);
         }
     }
     
@@ -1104,7 +1169,7 @@ function generateMoveGrid(type, isEnemy) {
     return gridHtml + '</div>';
 }
 
-function confirmExit() { if(confirm("タイトルに戻りますか？")) switchScreen('screen-title'); }
+async function confirmExit() { if(await AppUI.confirm("タイトルに戻りますか？")) switchScreen('screen-title'); }
 
 /* ================= オーディオ管理 ================= */
 const SOUNDS = {
@@ -1168,12 +1233,12 @@ window.onHandClick = function(owner, index) {
 
 // 3. 移動音・撃破音・オンライン中継
 const originalTryMove = window.tryMove;
-window.tryMove = function(fx, fy, tx, ty, isAI) {
+window.tryMove = async function(fx, fy, tx, ty, isAI) {
     const target = board[ty][tx];
     const piece = board[fy][fx];
     const check = checkMoveOrFusion(piece, fx, fy, tx, ty);
     
-    const result = originalTryMove(fx, fy, tx, ty, isAI);
+    const result = await originalTryMove(fx, fy, tx, ty, isAI);
     
     if (result) {
         if (check.isFusion) {
@@ -1193,9 +1258,9 @@ window.tryMove = function(fx, fy, tx, ty, isAI) {
 
 // 4. ドロップ音（持ち駒を打つ）・オンライン中継
 const originalTryDrop = window.tryDrop;
-window.tryDrop = function(handIndex, tx, ty, isAI) {
+window.tryDrop = async function(handIndex, tx, ty, isAI) {
     const check = checkDropOrFusion(hands[turn][handIndex], tx, ty);
-    const result = originalTryDrop(handIndex, tx, ty, isAI);
+    const result = await originalTryDrop(handIndex, tx, ty, isAI);
     if (result) {
         if (check.isFusion) playSE('evolve');
         else playSE('move');
@@ -1257,15 +1322,15 @@ window.onCellClick = function(x, y) {
 };
 
 // 2. スキルボタンが押された時
-document.getElementById('btn-skill').onclick = function() {
+document.getElementById('btn-skill').onclick = async function() {
     if (!selected) return;
     const piece = board[selected.y][selected.x];
     const def = PIECE_DEF[piece.type];
     skillSource = { x: selected.x, y: selected.y };
 
     if (def.skill.type === 'area' || def.skill.type === 'buff') {
-        if (confirm(`【${def.skill.name}】を発動しますか？`)) {
-            executeSkillImmediate(piece, def.skill);
+        if (await AppUI.confirm(`【${def.skill.name}】を発動しますか？`)) {
+            await executeSkillImmediate(piece, def.skill);
         }
     } 
     else {
@@ -1277,7 +1342,7 @@ document.getElementById('btn-skill').onclick = function() {
 };
 
 // 3. 即時発動型スキルの処理
-function executeSkillImmediate(piece, skillDef) {
+async function executeSkillImmediate(piece, skillDef) {
     let logMsg = "";
     
     if (skillDef.name === '断罪の旋風') {
@@ -1311,7 +1376,7 @@ function executeSkillImmediate(piece, skillDef) {
 }
 
 // 4. ターゲット選択型スキルの処理
-function executeSkillTarget(tx, ty) {
+async function executeSkillTarget(tx, ty) {
     const piece = board[skillSource.y][skillSource.x];
     const target = board[ty][tx];
     const skillDef = PIECE_DEF[piece.type].skill;
@@ -1320,7 +1385,7 @@ function executeSkillTarget(tx, ty) {
 
     if (skillDef.name === '神殺しの矢') {
         if (target && target.owner !== piece.owner) {
-            if (confirm(`${PIECE_DEF[target.type].name}を狙撃しますか？`)) {
+            if (await AppUI.confirm(`${PIECE_DEF[target.type].name}を狙撃しますか？`)) {
                 capturePiece(target);
                 board[ty][tx] = null;
                 logMsg = `ウィリアムの狙撃！${PIECE_DEF[target.type].name}を射抜いた！`;
@@ -1328,12 +1393,12 @@ function executeSkillTarget(tx, ty) {
                 playSE('capture');
             }
         } else {
-            alert("敵の駒を選択してください");
+            await AppUI.alert("敵の駒を選択してください");
             return; 
         }
     }
     else if (skillDef.name === 'メテオストライク') {
-        if (confirm(`この場所へメテオストライクを発動しますか？`)) {
+        if (await AppUI.confirm(`この場所へメテオストライクを発動しますか？`)) {
             const directions = [[0,0], [0,-1], [0,1], [-1,0], [1,0]];
             let count = 0;
             directions.forEach(d => {
@@ -1356,7 +1421,7 @@ function executeSkillTarget(tx, ty) {
     }
     else if (skillDef.name === '死の舞踏') {
         if (target && target.owner !== piece.owner) {
-            if (confirm(`${PIECE_DEF[target.type].name}を暗殺し、位置を入れ替わりますか？`)) {
+            if (await AppUI.confirm(`${PIECE_DEF[target.type].name}を暗殺し、位置を入れ替わりますか？`)) {
                 capturePiece(target);
                 board[ty][tx] = piece;
                 board[skillSource.y][skillSource.x] = null;
@@ -1367,13 +1432,13 @@ function executeSkillTarget(tx, ty) {
                 return;
             }
         } else {
-            alert("敵の駒を選択してください");
+            await AppUI.alert("敵の駒を選択してください");
             return; 
         }
     }
     else if (skillDef.name === '影鏡') {
         if (target && target.owner === piece.owner && (tx !== skillSource.x || ty !== skillSource.y)) {
-            if (confirm(`${PIECE_DEF[target.type].name}と入れ替わりますか？`)) {
+            if (await AppUI.confirm(`${PIECE_DEF[target.type].name}と入れ替わりますか？`)) {
                 board[skillSource.y][skillSource.x] = target;
                 board[ty][tx] = piece;
                 logMsg = `ハンゾウが忍法・影鏡で位置を入れ替えた！`;
@@ -1381,7 +1446,7 @@ function executeSkillTarget(tx, ty) {
                 playSE('move');
             }
         } else {
-            alert("自分以外の味方の駒を選択してください");
+            await AppUI.alert("自分以外の味方の駒を選択してください");
             return;
         }
     }
