@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>合体将棋 Fusion Shogi (Ver.30 Revert & Stable)</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+            background-color: #1a1a1a;
+            color: #ecf0f1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            user-select: none;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- 画面共通 --- */
+        .screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: opacity 0.3s ease;
+        }
+        .active { display: flex; }
+
+        /* --- タイトル画面 --- */
+        #screen-title { 
+            background: radial-gradient(circle at center, #2c3e50 0%, #000000 100%);
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.8);
+        }
+        
+        #screen-title::before, #screen-title::after {
+            content: '';
+            position: absolute;
+            width: 80%; height: 1px;
+            background: linear-gradient(90deg, transparent, #f1c40f, transparent);
+        }
+        #screen-title::before { top: 20%; }
+        #screen-title::after { bottom: 20%; }
+
+        .title-logo { 
+            font-size: 72px; 
+            color: #f1c40f; 
+            font-weight: 900;
+            text-align: center;
+            letter-spacing: 0.1em;
+            margin-bottom: 5px;
+            filter: drop-shadow(0 0 15px rgba(230, 126, 34, 0.6));
+            background: linear-gradient(to bottom, #f1c40f 0%, #d35400 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .title-sub { 
+            font-size: 18px; 
+            color: #bdc3c7; 
+            margin-bottom: 60px; 
+            letter-spacing: 0.4em;
+            font-weight: 300;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        /* --- 高級ボタンデザイン --- */
+        .btn-group { display: flex; flex-direction: column; gap: 25px; }
+        .btn-luxury {
+            position: relative;
+            padding: 16px 45px;
+            font-size: 18px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            border: 1px solid rgba(241, 196, 15, 0.4);
+            background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%);
+            border-radius: 4px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            min-width: 280px;
+            z-index: 1;
+        }
+        .btn-luxury::after {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            transform: rotate(45deg);
+            transition: 0.5s;
+            pointer-events: none;
+        }
+        .btn-luxury:hover {
+            border-color: #f1c40f;
+            box-shadow: 0 0 20px rgba(241, 196, 15, 0.3);
+            transform: translateY(-2px);
+            background: linear-gradient(135deg, #3d566e 0%, #2c3e50 100%);
+        }
+        .btn-luxury:hover::after { left: 100%; }
+        .btn-luxury:active { transform: translateY(1px); box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+        .btn-luxury:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; filter: grayscale(1); }
+
+        .btn-reset { border-left: 5px solid #2980b9; }
+        .btn-continue { border-left: 5px solid #f1c40f; }
+        .btn-debug-lux { border-left: 5px solid #8e44ad; background: linear-gradient(135deg, #2c3e50 0%, #4b0082 100%); }
+        .btn-danger { border-left: 5px solid #c0392b; }
+        .btn-muted { border-left: 5px solid #7f8c8d; }
+
+        /* --- エフェクト系 --- */
+        .shake { animation: shakeAnim 0.3s linear; }
+        @keyframes shakeAnim {
+            0% { transform: translate(0,0); }
+            20% { transform: translate(-8px, 5px); }
+            40% { transform: translate(8px, -5px); }
+            60% { transform: translate(-8px, -5px); }
+            80% { transform: translate(8px, 5px); }
+            100% { transform: translate(0,0); }
+        }
+
+        .fusion-cutin {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0);
+            background: linear-gradient(90deg, transparent, rgba(241, 196, 15, 0.9), transparent);
+            color: #fff; font-size: 40px; font-weight: 900; padding: 20px 100px;
+            white-space: nowrap; z-index: 5000; pointer-events: none;
+            text-shadow: 0 0 20px #000; border-top: 2px solid #fff; border-bottom: 2px solid #fff;
+            opacity: 0; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .fusion-cutin.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+
+        .flash-white { position: fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:4999; opacity:0; pointer-events:none; }
+        @keyframes flashAnim { 0% { opacity: 0.8; } 100% { opacity: 0; } }
+        .flash-active { animation: flashAnim 0.4s ease-out forwards; }
+
+        /* --- 共通詳細パネル --- */
+        .detail-panel {
+            width: 100%; background: rgba(0, 0, 0, 0.9); border: 2px solid #f1c40f; border-radius: 12px;
+            padding: 15px; display: flex; flex-direction: column; align-items: center; color: #fff;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); box-sizing: border-box;
+        }
+        #screen-deck .detail-panel { flex-direction: row; max-width: 600px; align-items: center; }
+        .detail-hidden { display: none !important; }
+        .detail-img-area { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 10px; }
+        .detail-img-area .piece { transform: scale(2.5); margin: 30px 0; }
+        .detail-content { width: 100%; display: flex; flex-direction: column; }
+        .detail-header { border-bottom: 1px solid #7f8c8d; margin-bottom: 8px; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: baseline; }
+        .detail-name { font-size: 20px; font-weight: bold; color: #f1c40f; }
+        .detail-cost { font-size: 14px; color: #fff; background: #c0392b; padding: 1px 8px; border-radius: 4px; font-weight: bold; }
+        .detail-desc { font-size: 12px; color: #bdc3c7; line-height: 1.4; margin-bottom: 8px; text-align: left;}
+        .detail-grid { padding: 10px; background: #1a252f; border-radius: 8px; border: 1px solid #34495e; margin-top: 10px;}
+
+        /* --- 対局画面 3カラムレイアウト --- */
+        .battle-layout { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 30px; width: 98%; max-width: 1200px; height: 90vh; }
+        .battle-sidebar-left { width: 220px; display: flex; flex-direction: column; gap: 10px; height: 100%; }
+        .log-container { flex: 1; background: rgba(0,0,0,0.6); border: 1px solid #34495e; border-radius: 8px; padding: 10px; overflow-y: auto; font-size: 13px; text-align: left; color: #bdc3c7; border-left: 3px solid #2980b9; }
+        .log-entry { margin-bottom: 8px; border-bottom: 1px solid #2c3e50; padding-bottom: 4px; }
+        .log-turn-sente { color: #f1c40f; font-weight: bold; }
+        .log-turn-gote { color: #e67e22; font-weight: bold; }
+        .battle-center { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .battle-sidebar-right { width: 260px; display: flex; flex-direction: column; gap: 10px; }
+        .side-title { font-size: 14px; color: #f1c40f; text-align: center; letter-spacing: 0.2em; background: rgba(241, 196, 15, 0.1); padding: 5px; border-radius: 4px; }
+
+        .komadai { 
+            width: 380px; min-height: 80px; background-color: #3e2723; border: 3px double #f1c40f; border-radius: 8px; 
+            padding: 12px; display: flex; flex-direction: column; gap: 5px; box-shadow: inset 0 0 20px rgba(0,0,0,1); 
+            position: relative; box-sizing: border-box;
+        }
+        .komadai .container { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
+
+        /* --- デッキ編成 --- */
+        #screen-deck { justify-content: flex-start; padding-top: 15px; overflow-y: auto; background-color: #1a1a1a; }
+        .deck-header { display: flex; justify-content: space-between; width: 95%; max-width: 600px; align-items: center; margin-bottom: 5px; }
+        .cost-meter { font-size: 18px; font-weight: bold; background: #34495e; padding: 5px 15px; border-radius: 8px; border: 2px solid #7f8c8d; }
+        .cost-ok { color: #2ecc71; border-color: #2ecc71; }
+        .cost-over { color: #e74c3c; border-color: #e74c3c; }
+        .deck-area { display: grid; grid-template-columns: repeat(9, 40px); grid-template-rows: repeat(3, 45px); background-color: #5d4037; border: 6px solid #5d4037; margin-bottom: 10px; box-shadow: 0 10px 20px rgba(0,0,0,0.5); gap: 2px; cursor: pointer; }
+        .deck-cell { width: 40px; height: 45px; background-color: #eebb55; display: flex; justify-content: center; align-items: center; position: relative; }
+        .deck-cell:hover { background-color: #f1c40f; }
+        .deck-cell.highlight { background-color: #a2d9ce; box-shadow: inset 0 0 10px #2ecc71; }
+        .inventory-area { width: 95%; max-width: 600px; background: #34495e; border-radius: 8px; padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-height: 80px; margin-bottom: 10px; max-height: 150px; overflow-y: auto; }
+        .inv-item { width: 55px; height: 75px; background: #455a64; border-radius: 4px; display: flex; flex-direction: column; align-items: center; cursor: pointer; position: relative; border: 2px solid transparent; padding-top: 5px; }
+        .inv-item.selected { border-color: #f1c40f; background: #546e7a; box-shadow: 0 0 10px #f1c40f; }
+        .inv-item .count { font-size: 10px; color: #fff; background: #000; padding: 1px 4px; border-radius: 4px; position: absolute; top: 2px; right: 2px; z-index: 20; }
+        .inv-item.disabled { opacity: 0.3; pointer-events: none; }
+        .inv-info { font-size: 10px; color: #ecf0f1; text-align: center; line-height: 1.1; margin-top: 2px; }
+
+        /* --- ショップ --- */
+        #screen-shop { background-color: #1a1a1a; }
+        .pack-container { width: 200px; height: 300px; background: linear-gradient(45deg, #f1c40f, #e67e22); border: 4px solid #fff; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 0 30px rgba(241, 196, 15, 0.5); transition: transform 0.2s; margin-bottom: 30px; }
+        .pack-container:hover { transform: scale(1.05); }
+        .pack-container.gacha-shaking { animation: gachaShake 0.1s infinite; border-color: #f1c40f; box-shadow: 0 0 50px #f1c40f; }
+        @keyframes gachaShake { 0% { transform: translate(2px, 2px); } 50% { transform: translate(-2px, -2px); } 100% { transform: translate(2px, -2px); } }
+
+        .pack-price { font-size: 30px; font-weight: bold; color: #fff; margin-top: 10px; background: #000; padding: 5px 10px; border-radius: 5px; }
+        .gacha-result { display: flex; gap: 15px; margin-top: 20px; min-height: 60px; }
+        .gacha-result .piece { transform: scale(1.5); margin: 10px; opacity: 0; animation: popIn 0.5s forwards; }
+        @keyframes popIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1.5); opacity: 1; } }
+
+        /* --- 盤面共通 --- */
+        #board { display: grid; grid-template-columns: repeat(9, 40px); grid-template-rows: repeat(9, 45px); background-color: #5d4037; border: 8px solid #5d4037; box-shadow: 0 15px 30px rgba(0,0,0,0.6); gap: 2px; position: relative; transition: transform 0.1s; }
+        .rotate-board { transform: rotate(180deg); }
+        .cell { width: 40px; height: 45px; background-color: #eebb55; display: flex; justify-content: center; align-items: center; cursor: pointer; position: relative; }
+
+        /* ガイド */
+        .cell.selected { background-color: rgba(255, 255, 0, 0.5); }
+        .cell.last-move { background-color: rgba(231, 76, 60, 0.4); }
+        .cell.possible-move::after { content: ''; position: absolute; width: 12px; height: 12px; background-color: rgba(46, 204, 113, 0.9); border-radius: 50%; pointer-events: none; z-index: 20;}
+        .cell.possible-fusion { background-color: rgba(52, 152, 219, 0.5) !important; box-shadow: inset 0 0 10px #3498db; }
+        .cell.possible-fusion::after { background-color: #3498db !important; box-shadow: 0 0 5px #fff; width: 14px; height: 14px; }
+        .cell.possible-capture { background-color: rgba(231, 76, 60, 0.5) !important; box-shadow: inset 0 0 15px #c0392b; }
+        .cell.possible-capture::after { content: '⚔️'; font-size: 18px; background-color: transparent !important; animation: bounce 0.5s infinite alternate; }
+        .cell.possible-swap { background-color: rgba(155, 89, 182, 0.5) !important; box-shadow: inset 0 0 10px #8e44ad; }
+        .cell.possible-swap::after { content: '⇄'; font-size: 24px; color: #fff; background: transparent !important; }
+        @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.2); } }
+
+        /* 駒デザイン */
+        .piece { width: 38px; height: 42px; background-color: #f39c12; color: #000; clip-path: polygon(50% 0%, 100% 25%, 100% 100%, 0% 100%, 0% 25%); display: flex; justify-content: center; align-items: flex-end; font-size: 18px; font-weight: bold; position: relative; z-index: 10; filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.5)); transition: all 0.1s; }
+        .piece span { margin-bottom: 3px; line-height: 1; }
+        .piece.gote { transform: rotate(180deg); background-color: #d35400; color: #fff; }
+        .piece.evolved { background: linear-gradient(135deg, #8e44ad, #9b59b6); color: #fff; border: 1px solid #fff; font-size: 12px; }
+        .piece.evolved span { margin-bottom: 5px; }
+        .piece.variant { background-color: #27ae60; color: #fff; border: 1px solid #2ecc71; }
+        .piece.invincible { filter: drop-shadow(0 0 5px #f1c40f) drop-shadow(0 0 10px #f1c40f); animation: pulse 1s infinite; }
+
+        /* レシピ */
+        .recipe-container { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; background: rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 8px; width: 100%; box-sizing: border-box;}
+        .recipe-row { display: flex; align-items: center; gap: 8px; font-size: 14px; justify-content: center; }
+        .recipe-arrow { color: #f1c40f; font-weight: bold; }
+        .recipe-result { cursor: pointer; border: 1px dashed #f1c40f; border-radius: 4px; transition: 0.2s; }
+        .recipe-result:hover { background: rgba(241, 196, 15, 0.3); transform: scale(1.1); }
+
+        /* 移動グリッド */
+        .move-grid { display: grid; grid-template-columns: repeat(5, 14px); grid-template-rows: repeat(5, 14px); gap: 2px; margin: 0 auto; width: 78px; }
+        .grid-cell { width: 14px; height: 14px; background: #444; border-radius: 2px; display: flex; justify-content: center; align-items: center; }
+        .grid-center { background: #f39c12; }
+        .grid-move { background: #2ecc71; border-radius: 50%; }
+        .grid-slide { background: #3498db; clip-path: polygon(20% 0%, 80% 0%, 100% 50%, 80% 100%, 20% 100%, 0% 50%); }
+        .grid-jump { background: #e74c3c; border-radius: 30%; }
+        .grid-swap { background: #9b59b6; border-radius: 2px; border: 1px solid #fff; }
+
+        #tooltip { position: absolute; display: none; background-color: rgba(0, 0, 0, 0.9); color: #fff; padding: 10px; border: 2px solid #f1c40f; border-radius: 8px; z-index: 3000; font-size: 14px; pointer-events: none; width: 220px; }
+    </style>
+</head>
+<body>
+
+    <div id="flash-layer" class="flash-white"></div>
+    <div id="fusion-cutin" class="fusion-cutin">合体進化！！</div>
+
+    <div id="screen-title" class="screen active">
+        <div class="title-logo">合体将棋</div>
+        <div class="title-logo" style="font-size: 32px; -webkit-text-fill-color: #bdc3c7;">Fusion Shogi</div>
+        <div class="title-sub">進化・合体・異国軍。</div>
+        <div id="gold-display" style="font-size: 24px; color: #f1c40f; font-weight: bold; margin-bottom: 10px; background: rgba(0,0,0,0.5); padding: 5px 20px; border-radius: 20px;">0 G</div>
+        <div class="btn-group">
+            <button class="btn-luxury btn-reset" onclick="resetAndStart()">軍勢を再編して開始</button>
+            <button class="btn-luxury btn-continue" onclick="gotoDeck(false)">戦場へ戻る (デッキ編成)</button>
+            <button class="btn-luxury btn-debug-lux" onclick="startDebugMode()">天下統一 (全駒解放モード)</button>
+        </div>
+    </div>
+
+    <div id="screen-deck" class="screen">
+        <div class="deck-header">
+            <div id="deck-cost" class="cost-meter">Cost: 0 / 70</div>
+            <div id="deck-gold" style="color:#f1c40f; font-weight:bold;">0 G</div>
+        </div>
+        <div class="deck-area" id="deck-editor"></div>
+        <div class="inventory-area" id="inventory-list"></div>
+        <div id="deck-detail-panel" class="detail-panel detail-hidden">
+            <div class="detail-img-area"></div>
+            <div class="detail-content">
+                        <div class="detail-header" style="display: flex; align-items: baseline; justify-content: space-between;">
+                            <div>
+                                <span class="detail-name" style="font-weight: bold; font-size: 1.2em;"></span>
+                                <span class="detail-attr" style="font-size: 13px; color: #f1c40f; margin-left: 8px;"></span>
+                            </div>
+                            <span class="detail-cost"></span>
+                        </div>
+                        
+                        <div class="detail-skill" style="color: #ff7675; font-size: 12px; margin-top: 8px; background: rgba(255,118,117,0.15); padding: 6px; border-radius: 4px; display: none;"></div>
+                        
+                        <div class="detail-desc" style="font-size: 12px; margin-top: 5px;"></div>
+                        
+                        <div class="detail-recipes" style="font-size: 12px; margin-top: 10px; border-top: 1px dashed #7f8c8d; padding-top: 8px; line-height: 1.4;"></div>
+                    </div>
+            <div class="detail-grid"></div>
+        </div>
+        <div style="display:flex; gap:15px; margin-top:5px;">
+            <button class="btn-luxury btn-danger" id="btn-battle-online" style="padding: 10px 45px; min-width: 200px;" onclick="startOnlineMatch()">ONLINE MATCH</button>
+            <button class="btn-luxury btn-continue" id="btn-battle-start" style="padding: 10px 45px; min-width: 200px;" onclick="startGame()">OFFLINE BATTLE</button>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:15px;">
+            <button class="btn-luxury btn-reset" style="padding: 8px 25px; min-width: 140px; font-size: 14px;" onclick="gotoShop()">ショップへ</button>
+            <button class="btn-luxury btn-muted" style="padding: 8px 25px; min-width: 140px; font-size: 14px;" onclick="switchScreen('screen-title')">タイトルへ</button>
+        </div>
+    </div>
+
+    <div id="screen-matching" class="screen">
+        <h2 style="color:#f1c40f; letter-spacing: 0.2em;">オンライン対戦</h2>
+        <div style="margin: 20px 0;">
+            <input type="text" id="room-id-input" placeholder="合言葉（空欄でランダム）" style="padding: 10px; font-size: 16px; width: 200px; border-radius: 5px; border: 1px solid #7f8c8d; background: #34495e; color: #fff; text-align: center;">
+        </div>
+        <button id="btn-join-room" class="btn-luxury btn-continue" style="min-width: 200px;">対戦相手を探す</button>
+        <p id="matching-status" style="margin-top: 20px; color: #bdc3c7; font-size: 16px;"></p>
+        <button class="btn-luxury btn-muted" style="margin-top: 30px; padding: 8px 25px; min-width: 140px; font-size: 14px;" onclick="switchScreen('screen-deck')">戻る</button>
+    </div>
+
+    <div id="screen-shop" class="screen">
+        <h2 style="color:#f1c40f; letter-spacing: 0.2em;">補給処 (Shop)</h2>
+        <div id="shop-gold" style="font-size:24px; color:#f1c40f; margin-bottom:20px;">0 G</div>
+        <div id="pack-obj" class="pack-container" onclick="buyPack()">
+            <div class="pack-title" style="font-size:24px; font-weight:bold; color:#fff; text-shadow:2px 2px 0 #000;">増援パック</div>
+            <div style="font-size:12px; color:#fff;">正規軍 & 異国軍</div>
+            <div class="pack-price">300 G</div>
+        </div>
+        <div class="gacha-result" id="gacha-result"></div>
+        <button class="btn-luxury btn-continue" style="margin-top:30px;" onclick="gotoDeck(false)">デッキ編成へ戻る</button>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div class="battle-layout">
+            
+            <div class="battle-sidebar-left">
+                <div class="side-title">対局録</div>
+                <div id="battle-log" class="log-container"></div>
+            </div>
+            
+            <div id="battle-main-area" class="battle-center">
+                <div id="status" style="font-size: 16px; text-align: center; background: #34495e; padding: 8px 15px; border-radius: 20px; border: 1px solid #7f8c8d; width: 100%; box-sizing: border-box;">開始</div>
+                <div class="komadai" id="komadai-top"><div class="komadai-title" id="komadai-top-title">Enemy</div><div class="container"></div></div>
+                
+                <div id="board"></div>
+                
+                <div id="skill-container" style="display:none; margin: 10px 0; text-align: center;">
+                    <button id="btn-skill" class="btn-luxury" style="background: linear-gradient(45deg, #FFD700, #DAA520); color: black; font-weight: bold; padding: 10px 20px; border: 2px solid #fff; cursor: pointer; border-radius: 5px; min-width: 200px;">
+                        スキル発動
+                    </button>
+                    <div id="skill-desc" style="font-size: 12px; margin-top: 5px; color: #ecf0f1;"></div>
+                </div>
+
+                <div class="komadai" id="komadai-bottom"><div class="komadai-title" id="komadai-bottom-title">Player</div><div class="container"></div></div>
+                <button class="btn-luxury btn-danger" style="padding: 10px 30px; min-width: 200px; font-size: 14px;" onclick="confirmExit()">投了 / タイトルへ</button>
+            </div>
+            
+            <div class="battle-sidebar-right">
+                <div class="side-title">駒情報</div>
+                <div id="game-detail-panel" class="detail-panel detail-hidden">
+                    <div class="detail-img-area"></div>
+                    
+                    <div class="detail-content">
+                        <div class="detail-header" style="display: flex; align-items: baseline; justify-content: space-between;">
+                            <div>
+                                <span class="detail-name" style="font-weight: bold; font-size: 1.2em;"></span>
+                                <span class="detail-attr" style="font-size: 13px; color: #f1c40f; margin-left: 8px;"></span>
+                            </div>
+                            <span class="detail-cost"></span>
+                        </div>
+                        <div class="detail-skill" style="color: #ff7675; font-size: 12px; margin-top: 8px; background: rgba(255,118,117,0.15); padding: 6px; border-radius: 4px; display: none;"></div>
+                        <div class="detail-desc" style="font-size: 12px; margin-top: 5px;"></div>
+                        <div class="detail-recipes" style="font-size: 12px; margin-top: 10px; border-top: 1px dashed #7f8c8d; padding-top: 8px; line-height: 1.4;"></div>
+                    </div>
+                    <div class="detail-grid"></div>
+                </div>
+            </div>
+
+<script>
+/* ================= 全体設定 ================= */
+const BOARD_SIZE = 9;
+const SENTE = 0; const GOTE = 1;
+const MAX_COST = 70;
+const INITIAL_GOLD = 500;
+const PACK_PRICE = 300;
+
+let board = [];
+let hands = { [SENTE]: [], [GOTE]: [] };
+let turn = SENTE;
+let selected = null; 
+let possibleMoves = []; 
+let lastMove = null;
+let isGameOver = false;
+let currentFormation = [];
+let holdingPieceType = null; 
+let isDebugMode = false;
+let isAnimating = false;
+
+const socket = io();
+let myRole = null;
+let isOnlineMatch = false;
+
+const PIECE_DEF = {
+    // === 正規軍（王宮騎士団） ===
+    'fu': { name: '歩兵', cost: 1, type: 'standard' }, 'ky': { name: '香車', cost: 3, type: 'standard' },
+    'ke': { name: '桂馬', cost: 4, type: 'standard' }, 'gi': { name: '銀将', cost: 5, type: 'standard' },
+    'do': { name: '銅将', cost: 4, type: 'standard' }, 'hy': { name: '猛豹', cost: 5, type: 'standard' },
+    'ki': { name: '金将', cost: 6, type: 'standard' }, 'ka': { name: '角行', cost: 10, type: 'standard' },
+    'hi': { name: '飛車', cost: 13, type: 'standard' }, 'ou': { name: '王将', cost: 0, type: 'standard' },
+    
+    // === 反乱軍（義勇軍）Rank 1〜2 ===
+    'r_fu': { name: '新兵', cost: 1, type: 'variant' }, 'r_vt': { name: 'ベテラン', cost: 0, type: 'variant' },
+    'r_ar': { name: '石弓兵', cost: 3, type: 'variant' }, 'r_sn': { name: '狙撃手', cost: 0, type: 'variant' },
+    'r_sc': { name: '斥候', cost: 4, type: 'variant' }, 'r_sp': { name: '密偵', cost: 0, type: 'variant' },
+    'r_gd': { name: '用心棒', cost: 5, type: 'variant' }, 'r_vd': { name: '歴戦の守り手', cost: 0, type: 'variant' },
+    'r_mg': { name: '魔術師', cost: 8, type: 'variant' }, 'r_hw': { name: '大魔導', cost: 0, type: 'variant' },
+    'r_as': { name: '暗殺者', cost: 6, type: 'variant' }, 'r_sh': { name: '影', cost: 0, type: 'variant' },
+
+    // === 正規軍 進化駒（大将） Rank 4 ===
+    'h_fu': { name: '重歩兵', cost: 0, type: 'evolved' }, 'h_ke': { name: '天馬', cost: 0, type: 'evolved' },
+    'h_ky': { name: '弩兵', cost: 0, type: 'evolved' }, 'h_gi': { name: '隠密', cost: 0, type: 'evolved' },
+    'h_do': { name: '重装槍兵', cost: 0, type: 'evolved' }, 'h_hy': { name: '白虎', cost: 0, type: 'evolved' },
+    'h_ki': { name: '将軍', cost: 0, type: 'evolved' }, 'h_ka': { name: '鳳凰', cost: 0, type: 'evolved' },
+    'h_hi': { name: '大砲', cost: 0, type: 'evolved' }, 'h_ou': { name: '帝王', cost: 0, type: 'evolved' },
+    
+    // === 反乱軍 混成進化（大将） Rank 4+ ===
+    'r_gm': { name: '帝国軍団長', cost: 0, type: 'evolved' }, 'r_mc': { name: '魔導大砲', cost: 0, type: 'evolved' },
+    'r_pk': { name: '幻影騎士', cost: 0, type: 'evolved' }, 'r_ig': { name: '鋼鉄の門番', cost: 0, type: 'evolved' },
+
+    // === 反乱軍 英雄（伝説） Rank 5 ===
+    'r_gu': { name: 'ガッツ', cost: 0, type: 'evolved', skill: { name: '断罪の旋風', ct: 4, type: 'area', desc: '周囲8マスの敵を全滅させる' } },
+    'r_wi': { name: 'ウィリアム', cost: 0, type: 'evolved', skill: { name: '神殺しの矢', ct: 5, type: 'target_enemy', desc: '盤上の敵1体を狙撃する' } },
+    'r_ha': { name: 'ハンゾウ', cost: 0, type: 'evolved', skill: { name: '影鏡', ct: 3, type: 'target_ally', desc: '味方と位置を入れ替える' } },
+    'r_be': { name: 'ベンケイ', cost: 0, type: 'evolved', skill: { name: '仁王立ち', ct: 6, type: 'buff', desc: '3ターン味方を守る' } },
+    'r_me': { name: 'マーリン', cost: 0, type: 'evolved', skill: { name: 'メテオストライク', ct: 6, type: 'target_enemy', desc: '指定マスと十字の敵を破壊する' } },
+    'r_jk': { name: 'ジャック', cost: 0, type: 'evolved', skill: { name: '死の舞踏', ct: 5, type: 'target_enemy', desc: '敵と位置を入れ替え、その敵を確殺する' } },
+
+    // === 成駒 ===
+    'to':{name:'と金',cost:0}, 'ny':{name:'成香',cost:0}, 'nk':{name:'成桂',cost:0}, 'ng':{name:'成銀',cost:0}, 'nd':{name:'成銅',cost:0}, 'nh':{name:'成豹',cost:0}, 'um':{name:'龍馬',cost:0}, 'ry':{name:'龍王',cost:0}
+};
+
+const MOVES = {
+    // 正規軍
+    'fu': [[0, -1]], 'ky': [[0, -1, true]], 'ke': [[-1, -2], [1, -2]], 'gi': [[-1, -1], [0, -1], [1, -1], [-1, 1], [1, 1]],
+    'do': [[0, -1], [-1, -1], [1, -1], [0, 1]], 'hy': [[-1, -1], [1, -1], [0, -1], [0, 1], [-1, 1], [1, 1]],
+    'ki': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]], 'ka': [[-1, -1, true], [1, -1, true], [-1, 1, true], [1, 1, true]],
+    'hi': [[0, -1, true], [0, 1, true], [-1, 0, true], [1, 0, true]], 'ou': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]],
+    // 反乱軍 Rank 1
+    'r_fu': [[0, -1]], 
+    'r_ar': [[0, -1], [0, -2]], 
+    'r_sc': [[-1, -1], [1, -1], [-1, 1], [1, 1]], 
+    'r_gd': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]],
+    'r_mg': [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -2], [0, 2], [-2, 0], [2, 0]],
+    'r_as': [[-1, -2], [1, -2], [-1, 1], [1, 1]],
+    // 反乱軍 Rank 2（覚醒）
+    'r_vt': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]], 
+    'r_sn': [[0,-1],[0,-2],[0,-3],[-1,-1],[1,-1]], 
+    'r_sp': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]], // ※飛び越しは後日特殊ロジックで実装
+    'r_vd': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1], [0,-2],[0,2],[-2,0],[2,0]],
+    'r_hw': [[-1, -1], [1, -1], [-1, 1], [1, 1], [-2, -2], [2, -2], [-2, 2], [2, 2], [0, -2], [0, 2], [-2, 0], [2, 0]],
+    'r_sh': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1], [-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2]],
+    // 成駒
+    'to': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]], 'ny': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]],
+    'nk': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]], 'ng': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]],
+    'nd': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]], 'nh': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, 1]],
+    'um': [[-1, -1, true], [1, -1, true], [-1, 1, true], [1, 1, true], [0, -1], [0, 1], [-1, 0], [1, 0]],
+    'ry': [[0, -1, true], [0, 1, true], [-1, 0, true], [1, 0, true], [-1, -1], [1, -1], [-1, 1], [1, 1]]
+};
+
+const EVOLVED_MOVES = {
+    // 正規軍 進化駒 Rank 4
+    'h_fu': [[0, -1], [-1, -1], [1, -1]], 
+    'h_ke': [[-1,-2], [1,-2], [-2,-1], [2,-1], [-2,1], [2,1], [-1,2], [1,2], [-1,-1],[0,-1],[1,-1],[-1,1],[1,1]],
+    'h_ky': [[0, -1, true], [-1, 0], [1, 0]],
+    'h_gi': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1], [-2,-2],[2,-2]],
+    'h_do': [[0, -1], [0, -2], [0, -3], [-1, -1], [1, -1], [0, 1]],
+    'h_hy': [[-1, -1, true], [1, -1, true], [0, 1], [-2, 0], [2, 0]],
+    'h_ki': [[0,-1,true],[-1,-1,true],[1,-1,true], [-1,0],[1,0],[0,1]],
+    'h_ka': [[-1,-1,true],[1,-1,true],[-1,1,true],[1,1,true], [0, -2], [0, 2], [-2, 0], [2, 0]],
+    'h_hi': [[0,-1,true],[0,1,true],[-1,0,true],[1,0,true], [-2, -2], [2, -2], [-2, 2], [2, 2]],
+    'h_ou': [[-1,-1],[0,-1],[1,-1],[-1,0], [1,0],[-1,1],[0,1],[1,1]],
+    
+    // 反乱軍 混成進化 Rank 4+
+    'r_gm': [[-1,-1],[0,-1],[1,-1],[-1,1],[0,1],[1,1], [-1,0,true],[1,0,true],[0,-1,true], [0,2]],
+    'r_mc': [[0,-1,true],[-1,-1,true],[1,-1,true], [-1,0],[1,0]],
+    'r_pk': [[-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2], [0,-3],[0,3],[-3,0],[3,0]], // ※ワープ実装までは長距離ジャンプで代用
+    'r_ig': [[-1,-1],[1,-1],[-1,1],[1,1], [0,-1,true],[0,1,true],[-1,0,true],[1,0,true]],
+
+    // 反乱軍 英雄 Rank 5
+    'r_gu': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1], [0,-2],[0,2],[-2,0],[2,0],[-2,-2],[2,-2],[-2,2],[2,2]],
+    'r_wi': [[0,-1,true],[-1,-1,true],[1,-1,true], [-1,0],[1,0],[0,1]],
+    'r_ha': [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]], // ワープスキル主体のステータス
+    'r_be': [[-1,-1],[1,-1],[-1,1],[1,1], [0,-1,true],[0,1,true],[-1,0,true],[1,0,true]],
+    'r_me': [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1], [-2, -2], [0, -2], [2, -2], [-2, 0], [2, 0], [-2, 2], [0, 2], [2, 2]],
+    'r_jk': [[-1,-2], [1,-2], [-2,-1], [2,-1], [-2,1], [2,1], [-1,2], [1,2], [-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]]
+};
+
+const FUSION_RECIPES = [
+    { ingredients: ['fu', 'fu'], result: 'h_fu', name: '重歩兵' }, 
+    { ingredients: ['ke', 'ke'], result: 'h_ke', name: '天馬' },
+    { ingredients: ['ky', 'fu'], result: 'h_ky', name: '弩兵' }, 
+    { ingredients: ['gi', 'gi'], result: 'h_gi', name: '隠密' }, 
+    { ingredients: ['do', 'fu'], result: 'h_do', name: '重装槍兵' }, 
+    { ingredients: ['hy', 'ke'], result: 'h_hy', name: '白虎' }, 
+    { ingredients: ['ki', 'ki'], result: 'h_ki', name: '将軍' },
+    { ingredients: ['ki', 'gi'], result: 'r_gm', name: '近衛軍団長' }, // ※暫定：金＋銀
+    { ingredients: ['ou', 'ki'], result: 'h_ou', name: '帝王' }, 
+    { ingredients: ['ka', 'gi'], result: 'h_ka', name: '鳳凰' }, 
+    { ingredients: ['hi', 'ky'], result: 'h_hi', name: '大砲' }
+];
+
+const PROMOTION_MAP = { 'fu': 'to', 'ky': 'ny', 'ke': 'nk', 'gi': 'ng', 'do': 'nd', 'hy': 'nh', 'ka': 'um', 'hi': 'ry' };
+const UN_PROMOTION_MAP = { 'to': 'fu', 'ny': 'ky', 'nk': 'ke', 'ng': 'gi', 'nd': 'do', 'nh': 'hy', 'um': 'ka', 'ry': 'hi' };
+
+// === 追加：反乱軍の覚醒システム用データ ===
+const AWAKEN_MAP = { 
+    'r_fu': 'r_vt', // 新兵 → ベテラン
+    'r_ar': 'r_sn', // 石弓兵 → 狙撃手
+    'r_sc': 'r_sp', // 斥候 → 密偵
+    'r_gd': 'r_vd', // 用心棒 → 歴戦の守り手
+    'r_mg': 'r_hw', // 魔術師 → 大魔導
+    'r_as': 'r_sh'  // 暗殺者 → 影
+};
+
+const HERO_AWAKEN_MAP = { 
+    'r_vt': 'r_gu', 'r_gm': 'r_gu', // ガッツ（ベテラン or 軍団長から）
+    'r_sn': 'r_wi', 'r_mc': 'r_wi', // ウィリアム
+    'r_sp': 'r_ha', 'r_pk': 'r_ha', // ハンゾウ
+    'r_vd': 'r_be', 'r_ig': 'r_be', // ベンケイ
+    'r_hw': 'r_me', // マーリン
+    'r_sh': 'r_jk'  // ジャック
+};
+
+// 【大将】属性を持つ駒のリスト（Rank 4以上）
+const TAISHO_PIECES = ['h_ky', 'h_ke', 'h_gi', 'h_do', 'h_hy', 'h_ki', 'h_ka', 'h_hi', 'h_ou', 'r_gm', 'r_mc', 'r_pk', 'r_ig'];
+
+// ================= 演出関数 =================
+function triggerFlash() {
+    const flash = document.getElementById('flash-layer');
+    flash.classList.remove('flash-active');
+    void flash.offsetWidth; 
+    flash.classList.add('flash-active');
+}
+
+function triggerShake() {
+    const area = document.getElementById('battle-main-area');
+    area.classList.add('shake');
+    setTimeout(() => area.classList.remove('shake'), 400);
+}
+
+function triggerFusionEffect(name) {
+    isAnimating = true; 
+    triggerFlash();
+    const cutin = document.getElementById('fusion-cutin');
+    cutin.innerText = `合体進化：${name}`;
+    cutin.classList.add('show');
+    setTimeout(() => {
+        cutin.classList.remove('show');
+        isAnimating = false; 
+    }, 1500);
+}
+
+// ================= データ管理 =================
+const SaveManager = {
+    key: 'fusion_shogi_v22_stable',
+    data: { gold: INITIAL_GOLD, inventory: {}, deck: [] },
+    init: function() { const saved = localStorage.getItem(this.key); if (saved) { try { this.data = JSON.parse(saved); } catch(e){ this.resetData(); } } else { this.resetData(); } },
+    save: function() { localStorage.setItem(this.key, JSON.stringify(this.data)); },
+    load: function() { this.init(); },
+    resetData: function() { this.data.gold = INITIAL_GOLD; this.data.inventory = { 'fu': 9, 'ky': 2, 'ke': 2, 'gi': 2, 'ki': 2, 'ka': 1, 'hi': 1, 'ou': 1 }; this.data.deck = [['fu','fu','fu','fu','fu','fu','fu','fu','fu'],[null,'ka',null,null,null,null,null,'hi',null],['ky','ke','gi','ki','ou','ki','gi','ke','ky']]; this.save(); },
+    addGold: function(amt) { this.data.gold += amt; this.save(); updateGoldUI(); },
+    addPiece: function(type) { if(!this.data.inventory[type]) this.data.inventory[type]=0; this.data.inventory[type]++; this.save(); }
+};
+
+function updateGoldUI() { const els = document.querySelectorAll('#gold-display, #deck-gold, #shop-gold'); els.forEach(el => el.innerText = SaveManager.data.gold + " G"); }
+function addLog(msg, turnOwner) { const logContainer = document.getElementById('battle-log'); if(!logContainer) return; const entry = document.createElement('div'); entry.className = 'log-entry'; const turnClass = turnOwner === SENTE ? 'log-turn-sente' : 'log-turn-gote'; const turnName = turnOwner === SENTE ? '●自軍' : '○敵軍'; entry.innerHTML = `<span class="${turnClass}">${turnName}</span>: ${msg}`; logContainer.prepend(entry); }
+function updateStatus(msg) { const el = document.getElementById('status'); if(el) el.innerText = msg; if(turn !== undefined) addLog(msg, turn); }
+
+// ================= 詳細パネル =================
+function updateDetailPanel(type, panelId) {
+    const panel = document.getElementById(panelId); if (!type) { panel.classList.add('detail-hidden'); return; }
+    panel.classList.remove('detail-hidden'); const def = PIECE_DEF[type]; const isEvolved = !!EVOLVED_MOVES[type];
+    panel.querySelector('.detail-img-area').innerHTML = ''; panel.querySelector('.detail-img-area').appendChild(createPieceElement({type: type, owner: SENTE}));
+    panel.querySelector('.detail-name').innerText = def.name; panel.querySelector('.detail-cost').innerText = `Cost: ${def.cost}`;
+    let desc = (def.type === 'standard') ? "正規軍の基本駒。" : (def.type === 'variant' ? "異国軍。特殊な動きを持つ。" : "進化した強力な駒。");
+    panel.querySelector('.detail-desc').innerText = desc;
+    const recipeEl = panel.querySelector('.detail-recipes'); recipeEl.innerHTML = '';
+    if (!isEvolved && def.type !== 'variant') {
+        const recipes = FUSION_RECIPES.filter(r => r.ingredients.includes(type));
+        if (recipes.length > 0) {
+            const container = document.createElement('div'); container.className = 'recipe-container'; const displayed = new Set();
+            recipes.forEach(r => {
+                const partner = r.ingredients[0] === type ? r.ingredients[1] : r.ingredients[0]; const key = partner + r.result;
+                if(!displayed.has(key)) {
+                    displayed.add(key); const row = document.createElement('div'); row.className = 'recipe-row';
+                    const p1 = createPieceElement({type: partner, owner: SENTE}); p1.style.transform = "scale(0.6)"; p1.style.margin = "-5px";
+                    const p2 = createPieceElement({type: r.result, owner: SENTE}); p2.style.transform = "scale(0.6)"; p2.style.margin = "-5px"; p2.classList.add('recipe-result');
+                    p2.onclick = (e) => { e.stopPropagation(); updateDetailPanel(r.result, panelId); };
+                    row.innerHTML = `<span style="font-size:12px;">+</span>`; row.appendChild(p1); row.innerHTML += `<span class="recipe-arrow">→</span>`; row.appendChild(p2); container.appendChild(row);
+                }
+            });
+            recipeEl.appendChild(container);
+        }
+    }
+    panel.querySelector('.detail-grid').innerHTML = generateMoveGrid(type, false);
+}
+
+// ================= UI操作 =================
+window.onload = function() { SaveManager.init(); updateGoldUI(); };
+function switchScreen(id) { holdingPieceType = null; document.querySelectorAll('.screen').forEach(el => el.classList.remove('active')); document.getElementById(id).classList.add('active'); document.getElementById('deck-detail-panel').classList.add('detail-hidden'); document.getElementById('game-detail-panel').classList.add('detail-hidden'); }
+function resetAndStart() { SaveManager.resetData(); SaveManager.load(); updateGoldUI(); gotoDeck(false); }
+function startDebugMode() { SaveManager.resetData(); SaveManager.data.gold = 99999; const basePieces = ['fu', 'ky', 'ke', 'gi', 'ki', 'ka', 'hi', 'ou', 'do', 'hy', 'r_fu', 'r_ar', 'r_sc', 'r_gd', 'r_mg', 'r_as']; for(let key of basePieces) SaveManager.data.inventory[key] = 99; SaveManager.save(); updateGoldUI(); gotoDeck(true); }
+function gotoDeck(debug) { isDebugMode = debug; currentFormation = JSON.parse(JSON.stringify(SaveManager.data.deck)); switchScreen('screen-deck'); updateDeckUI(); }
+function updateDeckUI() { renderDeckEditor(); renderInventory(); checkCostAndKing(); updateDetailPanel(holdingPieceType, 'deck-detail-panel'); }
+function renderDeckEditor() { 
+    const container = document.getElementById('deck-editor'); 
+    container.innerHTML = ''; 
+    for (let y = 0; y < 3; y++) { 
+        for (let x = 0; x < 9; x++) { 
+            const cell = document.createElement('div'); 
+            cell.className = 'deck-cell'; 
+            const type = currentFormation[y][x]; 
+            if (holdingPieceType && !type) cell.classList.add('highlight'); 
+            if (type) cell.appendChild(createPieceElement({type: type, owner: SENTE})); 
+            
+            cell.onclick = () => { 
+                if (holdingPieceType) {
+                    // 王の一枚制限チェック
+                    if (holdingPieceType === 'ou' || holdingPieceType === 'h_ou') {
+                        const alreadyHasKing = currentFormation.some(row => row.some(t => t === 'ou' || t === 'h_ou'));
+                        const targetIsKing = (currentFormation[y][x] === 'ou' || currentFormation[y][x] === 'h_ou');
+                        
+                        if (alreadyHasKing && !targetIsKing) {
+                            alert("王は一枚しか編成できません。");
+                            return;
+                        }
+                    }
+                    currentFormation[y][x] = holdingPieceType; 
+                }
+                else if (type) { 
+                    holdingPieceType = type; 
+                    currentFormation[y][x] = null; 
+                } 
+                updateDeckUI(); 
+            }; 
+            container.appendChild(cell); 
+        } 
+    } 
+}
+function renderInventory() { const container = document.getElementById('inventory-list'); container.innerHTML = ''; const trash = document.createElement('div'); trash.className = 'inv-item'; trash.style.background = '#c0392b'; trash.innerHTML = '<span style="font-size:24px; color:#fff;">🗑️</span><div class="inv-info" style="color:#fff;">解除</div>'; if(holdingPieceType === null) trash.classList.add('selected'); trash.onclick = () => { holdingPieceType = null; updateDeckUI(); }; container.appendChild(trash); const usage = {}; for(let row of currentFormation) for(let t of row) if(t) usage[t] = (usage[t]||0)+1; const sortedKeys = Object.keys(SaveManager.data.inventory).sort((a,b) => { const order = { 'standard': 1, 'variant': 2, 'evolved': 3 }; return order[PIECE_DEF[a].type] - order[PIECE_DEF[b].type]; }); for (let type of sortedKeys) { const owned = SaveManager.data.inventory[type]; const used = usage[type] || 0; const available = owned - used; if(owned <= 0) continue; const item = document.createElement('div'); item.className = 'inv-item'; if (holdingPieceType === type) item.classList.add('selected'); if (available <= 0) item.classList.add('disabled'); const pDiv = createPieceElement({type: type, owner: SENTE}); pDiv.style.transform = "scale(0.7)"; item.appendChild(pDiv); item.innerHTML += `<div class="inv-info">${PIECE_DEF[type].name}<br><b style="color:#f1c40f">Cost:${PIECE_DEF[type].cost}</b></div>`; item.innerHTML += `<div class="count">${available}/${owned}</div>`; item.onclick = () => { holdingPieceType = type; updateDeckUI(); }; container.appendChild(item); } }
+function checkCostAndKing() { let totalCost = 0; let hasKing = false; for(let row of currentFormation) for(let type of row) if(type) { totalCost += PIECE_DEF[type].cost; if(type === 'ou' || type === 'h_ou') hasKing = true; } const meter = document.getElementById('deck-cost'); meter.innerText = `Cost: ${totalCost} / ${MAX_COST}`; meter.className = 'cost-meter ' + (totalCost <= MAX_COST ? 'cost-ok' : 'cost-over'); const btn = document.getElementById('btn-battle-start'); btn.disabled = !(totalCost <= MAX_COST && hasKing); btn.innerText = !hasKing ? "王が必要です" : (totalCost > MAX_COST ? "コスト超過" : "OFFLINE BATTLE"); const btnOnline = document.getElementById('btn-battle-online'); if(btnOnline){ btnOnline.disabled = !(totalCost <= MAX_COST && hasKing); btnOnline.innerText = !hasKing ? "王が必要です" : (totalCost > MAX_COST ? "コスト超過" : "ONLINE MATCH"); } }
+function gotoShop() { switchScreen('screen-shop'); updateGoldUI(); document.getElementById('gacha-result').innerHTML = ''; }
+
+function buyPack() {
+    if (SaveManager.data.gold < PACK_PRICE) { alert("お金が足りません！"); return; }
+    const pack = document.getElementById('pack-obj');
+    pack.classList.add('gacha-shaking');
+    setTimeout(() => {
+        pack.classList.remove('gacha-shaking');
+        SaveManager.addGold(-PACK_PRICE);
+        const resultContainer = document.getElementById('gacha-result');
+        resultContainer.innerHTML = '';
+        const pools = [ 
+            { types: ['fu', 'r_fu'], weight: 45 }, 
+            { types: ['ky', 'ke', 'do', 'r_ar', 'r_sc'], weight: 30 }, 
+            { types: ['gi', 'ki', 'hy', 'r_gd', 'r_as'], weight: 15 }, 
+            { types: ['ka', 'hi', 'r_mg'], weight: 10 } 
+        ];
+        for (let i = 0; i < 3; i++) {
+            const r = Math.random() * 100; let selectedPool = pools[0].types; let sum = 0;
+            for (let pool of pools) { sum += pool.weight; if (r <= sum) { selectedPool = pool.types; break; } }
+            const type = selectedPool[Math.floor(Math.random() * selectedPool.length)];
+            SaveManager.addPiece(type);
+            setTimeout(() => {
+                const pDiv = createPieceElement({type: type, owner: SENTE});
+                if (PIECE_DEF[type].type === 'variant') pDiv.classList.add('variant');
+                resultContainer.appendChild(pDiv);
+            }, i * 200);
+        }
+    }, 800);
+}
+
+// ================= ゲーム本体 =================
+function startGame() { isOnlineMatch = false; myRole = SENTE; document.getElementById('board').classList.remove('rotate-board'); SaveManager.data.deck = JSON.parse(JSON.stringify(currentFormation)); SaveManager.save(); initGame(); switchScreen('screen-game'); document.getElementById('battle-log').innerHTML = ''; }
+
+function startOnlineMatch() {
+    SaveManager.data.deck = JSON.parse(JSON.stringify(currentFormation)); 
+    SaveManager.save();
+    switchScreen('screen-matching');
+    document.getElementById('matching-status').innerText = '';
+}
+
+document.getElementById('btn-join-room').addEventListener('click', () => {
+    let roomId = document.getElementById('room-id-input').value.trim();
+    if (!roomId) roomId = 'random-match';
+    socket.emit('joinRoom', roomId);
+    document.getElementById('matching-status').innerText = '対戦相手を待っています...';
+    isOnlineMatch = true;
+});
+
+socket.on('waitingForOpponent', () => {
+    document.getElementById('matching-status').innerText = '対戦相手を待機中です...';
+});
+
+socket.on('gameStart', (data) => {
+    myRole = data.role === 'SENTE' ? SENTE : GOTE;
+    document.getElementById('screen-matching').classList.remove('active');
+    document.getElementById('screen-game').classList.add('active');
+    
+    const boardEl = document.getElementById('board');
+    if (myRole === GOTE) boardEl.classList.add('rotate-board');
+    else boardEl.classList.remove('rotate-board');
+    
+    initGame();
+    document.getElementById('battle-log').innerHTML = '';
+});
+
+socket.on('opponentDisconnected', () => {
+    alert('対戦相手との通信が切断されました。');
+    switchScreen('screen-title');
+});
+
+socket.on('opponentAction', (action) => {
+    if (action.type === 'move') {
+        const { fx, fy, tx, ty } = action.data;
+        window.tryMove(fx, fy, tx, ty, true);
+        endTurn();
+    } else if (action.type === 'drop') {
+        window.tryDrop(action.data.handIndex, action.data.tx, action.data.ty, true);
+        endTurn();
+    } else if (action.type === 'skill_immediate') {
+        const p = board[action.data.sy][action.data.sx];
+        skillSource = {x: action.data.sx, y: action.data.sy};
+        executeSkillImmediate(p, PIECE_DEF[p.type].skill);
+    } else if (action.type === 'skill_target') {
+        skillSource = {x: action.data.sx, y: action.data.sy};
+        executeSkillTarget(action.data.tx, action.data.ty);
+    }
+});
+function initGame() { const aiSetup = [['ky','ke','gi','ki','ou','ki','gi','ke','ky'],[null,'hi',null,null,null,null,null,'ka',null],['fu','fu','fu','fu','fu','fu','fu','fu','fu']]; const playerSetup = SaveManager.data.deck; board = []; hands = { [SENTE]: [], [GOTE]: [] }; for (let y = 0; y < 3; y++) { let row = []; for (let x = 0; x < 9; x++) { let t = aiSetup[y][x]; row.push(t ? { type: t, owner: GOTE, isEvolved: false, sourceTypes: [t] } : null); } board.push(row); } for (let y = 3; y < 6; y++) { let row = []; for (let x = 0; x < 9; x++) row.push(null); board.push(row); } for (let y = 0; y < 3; y++) { let row = []; for (let x = 0; x < 9; x++) { let t = playerSetup[y][x]; row.push(t ? { type: t, owner: SENTE, isEvolved: !!EVOLVED_MOVES[t], sourceTypes: [t] } : null); } board.push(row); } turn = SENTE; selected = null; possibleMoves = []; lastMove = null; isGameOver = false; updateStatus("対局開始"); updateTurnDisplay(); render(); }
+
+function updateTurnDisplay() {
+    const el = document.getElementById('status');
+    if (!el) return;
+    if (isOnlineMatch) {
+        el.innerText = (turn === myRole) ? "あなたの番です" : "相手の番を待っています...";
+        el.style.backgroundColor = (turn === myRole) ? "#27ae60" : "#d35400";
+    } else {
+        el.innerText = (turn === SENTE) ? "あなたの番です" : "敵軍思考中...";
+        el.style.backgroundColor = (turn === SENTE) ? "#27ae60" : "#d35400";
+    }
+}
+
+function render() {
+    const boardEl = document.getElementById('board');
+    boardEl.innerHTML = '';
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.onclick = () => onCellClick(x, y);
+            if (selected && selected.type === 'board' && selected.x === x && selected.y === y) cell.classList.add('selected');
+            if (lastMove && lastMove.to.x === x && lastMove.to.y === y) cell.classList.add('last-move');
+            
+            const pm = possibleMoves.find(m => m.x === x && m.y === y);
+            if (pm) {
+                if (pm.isCapture) cell.classList.add('possible-capture'); 
+                else if (pm.isFusion) cell.classList.add('possible-fusion'); 
+                else if (pm.isSwap) cell.classList.add('possible-swap'); 
+                else cell.classList.add('possible-move'); 
+            }
+
+            const piece = board[y][x];
+            if (piece) cell.appendChild(createPieceElement(piece));
+            boardEl.appendChild(cell);
+        }
+    }
+    renderHand(SENTE); renderHand(GOTE);
+}
+
+function createPieceElement(piece) {
+    const div = document.createElement('div');
+    div.className = `piece ${piece.owner === GOTE ? 'gote' : ''}`;
+    const def = PIECE_DEF[piece.type];
+    if (piece.isEvolved) div.classList.add('evolved');
+    else if (def && def.type === 'variant') div.classList.add('variant');
+    if (piece.isInvincible) div.classList.add('invincible');
+    const span = document.createElement('span');
+    span.innerText = def ? def.name.substring(0,2) : piece.type;
+    div.appendChild(span);
+    return div;
+}
+
+function renderHand(owner) {
+    const isMe = isOnlineMatch ? (owner === myRole) : (owner === SENTE);
+    const id = isMe ? 'komadai-bottom' : 'komadai-top';
+    const titleEl = document.getElementById(`${id}-title`);
+    if (titleEl) titleEl.innerText = isMe ? 'Player' : 'Enemy';
+    
+    const container = document.querySelector(`#${id} .container`);
+    container.innerHTML = '';
+    hands[owner].forEach((type, index) => {
+        const div = createPieceElement({type: type, owner: owner, isEvolved: !!EVOLVED_MOVES[type]});
+        div.style.transform = (!isMe ? "rotate(180deg) scale(0.85)" : "rotate(0deg) scale(0.85)");
+        div.onclick = (e) => { e.stopPropagation(); onHandClick(owner, index); };
+        if (selected && selected.type === 'hand' && selected.owner === owner && selected.index === index) div.style.boxShadow = '0 0 8px yellow';
+        container.appendChild(div);
+    });
+}
+
+function onCellClick(x, y) {
+    const allowedTurn = isOnlineMatch ? myRole : SENTE;
+    if (isGameOver || turn !== allowedTurn || isAnimating) return;
+    const targetPiece = board[y][x];
+    if (targetPiece) updateDetailPanel(targetPiece.type, 'game-detail-panel');
+
+    if (selected) {
+        if (selected.type === 'board' && selected.x === x && selected.y === y) { selected = null; possibleMoves = []; render(); return; }
+        const isActionTarget = possibleMoves.some(m => m.x === x && m.y === y);
+        if (!isActionTarget && targetPiece && targetPiece.owner === turn) {
+            selected = { type: 'board', x, y }; updatePossibleMoves(board[y][x], x, y); render(); return;
+        }
+        let success = false;
+        if (selected.type === 'board') success = tryMove(selected.x, selected.y, x, y, false);
+        else if (selected.type === 'hand') success = tryDrop(selected.index, x, y, false);
+        if (success) endTurn();
+        return;
+    }
+    if (targetPiece && targetPiece.owner === turn) { selected = { type: 'board', x, y }; updatePossibleMoves(targetPiece, x, y); render(); }
+}
+
+function onHandClick(owner, index) { 
+    if (isGameOver || turn !== owner || isAnimating) return; 
+    const type = hands[owner][index]; updateDetailPanel(type, 'game-detail-panel'); 
+    selected = { type: 'hand', owner, index }; updatePossibleDrops(type); render(); 
+}
+
+function updatePossibleDrops(handType) { possibleMoves = []; for (let ty = 0; ty < BOARD_SIZE; ty++) for (let tx = 0; tx < BOARD_SIZE; tx++) { const check = checkDropOrFusion(handType, tx, ty); if (check.canDrop) possibleMoves.push({ x: tx, y: ty, isFusion: check.isFusion }); } }
+function checkDropOrFusion(type, tx, ty) { const target = board[ty][tx]; if (target) { if (target.owner === turn) { const recipe = getFusionRecipe(type, target.type); if (recipe) return { canDrop: true, isFusion: true, recipe: recipe }; } return { canDrop: false }; } if (type === 'fu') { for (let y = 0; y < BOARD_SIZE; y++) if (board[y][tx] && board[y][tx].owner === turn && board[y][tx].type === 'fu') return { canDrop: false }; if (ty === 0) return { canDrop: false }; } return { canDrop: true, isFusion: false }; }
+function updatePossibleMoves(piece, fx, fy) { possibleMoves = []; for (let ty = 0; ty < BOARD_SIZE; ty++) for (let tx = 0; tx < BOARD_SIZE; tx++) { const check = checkMoveOrFusion(piece, fx, fy, tx, ty); if (check.canMove) possibleMoves.push({ x: tx, y: ty, isFusion: check.isFusion, isCapture: check.isCapture, isSwap: check.isSwap }); } }
+function checkMoveOrFusion(piece, fx, fy, tx, ty) { const target = board[ty][tx]; const dx = tx - fx, dy = ty - fy; if (target && target.owner === piece.owner) { if (dx === 0 && dy === 0) return { canMove: false }; if (piece.type === 'h_ou' && isMoveValid(piece, fx, fy, tx, ty, true)) return { canMove: true, isSwap: true }; const recipe = getFusionRecipe(piece.type, target.type); if (recipe && isMoveValid(piece, fx, fy, tx, ty, true)) return { canMove: true, isFusion: true, recipe: recipe }; return { canMove: false }; } if (target && target.owner !== piece.owner) { if (target.isInvincible) return { canMove: false }; if (isMoveValid(piece, fx, fy, tx, ty, false)) return { canMove: true, isFusion: false, isCapture: true }; return { canMove: false }; } if (isMoveValid(piece, fx, fy, tx, ty, false)) return { canMove: true, isFusion: false, isCapture: false }; return { canMove: false }; }
+
+function isMoveValid(piece, fx, fy, tx, ty, ignoreFriendlyBlock) {
+    const dx = tx - fx, dy = ty - fy; 
+    const movesRef = EVOLVED_MOVES[piece.type] || MOVES[piece.type]; 
+    if(!movesRef) return false;
+    for (let m of movesRef) {
+        const targetDx = m[0], targetDy = piece.owner === SENTE ? m[1] : -m[1];
+        if (m[2]) { const sx = Math.sign(targetDx), sy = Math.sign(targetDy); if (sx !== 0 && Math.sign(dx) !== sx) continue; if (sy !== 0 && Math.sign(dy) !== sy) continue; if (sx === 0 && dx !== 0) continue; if (sy === 0 && dy !== 0) continue; if (sx !== 0 && sy !== 0 && Math.abs(dx) !== Math.abs(dy)) continue; if (!isPathClear(fx, fy, tx, ty, sx, sy)) continue; return true; }
+        else { if (dx === targetDx && dy === targetDy) return true; }
+    } return false;
+}
+
+function isPathClear(fx, fy, tx, ty, sx, sy) { let cx = fx + sx, cy = fy + sy; while (cx !== tx || cy !== ty) { if (board[cy][cx]) return false; cx += sx; cy += sy; } return true; }
+function getFusionRecipe(typeA, typeB) {
+    // 1. 通常の固有レシピのチェック
+    const recipe = FUSION_RECIPES.find(r => (r.ingredients[0] === typeA && r.ingredients[1] === typeB) || (r.ingredients[0] === typeB && r.ingredients[1] === typeA));
+    if (recipe) return recipe;
+
+    // 2. 混成進化（Rank 2 ＋ 【大将】 ＝ Rank 4+）のチェック
+    const rank2Map = {
+        'r_vt': { result: 'r_gm', name: '帝国軍団長' },
+        'r_sn': { result: 'r_mc', name: '魔導大砲' },
+        'r_sp': { result: 'r_pk', name: '幻影騎士' },
+        'r_vd': { result: 'r_ig', name: '鋼鉄の門番' }
+    };
+    
+    let rank2 = rank2Map[typeA] ? typeA : (rank2Map[typeB] ? typeB : null);
+    let other = rank2 === typeA ? typeB : typeA;
+    
+    // どちらかがRank 2で、もう片方が大将駒なら合体成立
+    if (rank2 && TAISHO_PIECES.includes(other)) {
+        return { ingredients: [typeA, typeB], result: rank2Map[rank2].result, name: rank2Map[rank2].name };
+    }
+    
+    return null; 
+}
+function tryMove(fx, fy, tx, ty, isAI) {
+    const piece = board[fy][fx], target = board[ty][tx], check = checkMoveOrFusion(piece, fx, fy, tx, ty);
+    if (!check.canMove) return false;
+    
+    if (check.isSwap) { 
+        board[ty][tx] = piece; board[fy][fx] = target; 
+    } else if (check.isFusion) {
+        const recipe = getFusionRecipe(piece.type, target.type);
+        triggerFusionEffect(recipe.name);
+        board[ty][tx] = { type: recipe.result, owner: piece.owner, isEvolved: true, sourceTypes: [...piece.sourceTypes, ...target.sourceTypes], isInvincible: true };
+        board[fy][fx] = null;
+        addLog(`${PIECE_DEF[piece.type].name}が合体し${recipe.name}へ！`, piece.owner);
+    } else {
+        let didAwaken = false;
+        if (target) {
+            capturePiece(target); // 敵を駒台へ送る
+            
+            // --- 覚醒システム（反乱軍） ---
+            // 1. 英雄覚醒（Rank 5）：敵の【大将】を討ち取った場合
+            if (TAISHO_PIECES.includes(target.type) && HERO_AWAKEN_MAP[piece.type]) {
+                const oldName = PIECE_DEF[piece.type].name;
+                piece.type = HERO_AWAKEN_MAP[piece.type];
+                const newName = PIECE_DEF[piece.type].name;
+                piece.isEvolved = true; // 英雄も進化した神々しいオーラを纏う
+                triggerFusionEffect("英雄覚醒:" + newName);
+                addLog(`${oldName}が敵将を討ち【${newName}】へ英雄覚醒！！`, piece.owner);
+                didAwaken = true;
+            } 
+            // 2. 1回目覚醒（Rank 2）：通常の敵を倒した場合
+            else if (AWAKEN_MAP[piece.type]) {
+                const oldName = PIECE_DEF[piece.type].name;
+                piece.type = AWAKEN_MAP[piece.type];
+                const newName = PIECE_DEF[piece.type].name;
+                triggerFusionEffect("覚醒:" + newName);
+                addLog(`${oldName}が実戦を経て【${newName}】に覚醒！`, piece.owner);
+                didAwaken = true;
+            }
+        }
+        
+        // 覚醒しなかった場合のみ、正規軍の「成り」判定を行う
+        let promote = false;
+        if (!didAwaken && !piece.isEvolved && PIECE_DEF[piece.type].type !== 'variant') {
+            const inZone = (turn === SENTE && ty <= 2) || (turn === GOTE && ty >= 6) || (turn === SENTE && fy <= 2) || (turn === GOTE && fy >= 6);
+            if (inZone && PROMOTION_MAP[piece.type]) promote = isAI ? true : confirm("成りますか？");
+        }
+        if (promote) piece.type = PROMOTION_MAP[piece.type];
+        
+        board[ty][tx] = piece; board[fy][fx] = null;
+    }
+    
+    lastMove = { from: {x:fx, y:fy}, to: {x:tx, y:ty} };
+    selected = null; possibleMoves = [];
+    return true;
+}
+function tryDrop(handIndex, tx, ty, isAI) {
+    const type = hands[turn][handIndex], target = board[ty][tx], check = checkDropOrFusion(type, tx, ty);
+    if (!check.canDrop) return false;
+    if (check.isFusion) {
+        triggerFusionEffect(check.recipe.name);
+        board[ty][tx] = { type: check.recipe.result, owner: turn, isEvolved: true, sourceTypes: [...target.sourceTypes, type], isInvincible: true };
+    } else {
+        board[ty][tx] = { type: type, owner: turn, isEvolved: !!EVOLVED_MOVES[type], sourceTypes: [type], isInvincible: false };
+    }
+    hands[turn].splice(handIndex, 1);
+    lastMove = { from: null, to: {x:tx, y:ty} };
+    selected = null; possibleMoves = [];
+    return true;
+}
+
+function capturePiece(target) { 
+    if (target.isEvolved) triggerShake();
+    target.sourceTypes.forEach(t => { let ct = UN_PROMOTION_MAP[t] || t; hands[turn].push(ct); }); 
+}
+
+function endTurn() {
+    if (isAnimating) { setTimeout(endTurn, 100); return; }
+    let senteK = false, goteK = false;
+    for(let y=0; y<BOARD_SIZE; y++) for(let x=0; x<BOARD_SIZE; x++) {
+        const p = board[y][x]; if(p && (p.type==='ou'||p.type==='h_ou')) { if(p.owner===SENTE) senteK=true; else goteK=true; }
+    }
+    if(!senteK) { alert("敗北..."); switchScreen('screen-title'); return; }
+    if(!goteK) { alert("勝利！ +150G"); SaveManager.addGold(150); switchScreen('screen-title'); return; }
+    turn = (turn === SENTE) ? GOTE : SENTE;
+    for(let row of board) for(let p of row) if(p && p.owner === turn) p.isInvincible = false;
+    updateTurnDisplay();
+    render();
+    if (!isOnlineMatch && turn === GOTE) setTimeout(aiMove, 500);
+}
+
+/* ================= 防衛重視・強化版AIロジック ================= */
+
+// 駒の価値を算出（再定義：王を失うリスクを最大化）
+function getPieceValue(type) {
+    if (!type) return 0;
+    const def = PIECE_DEF[type];
+    if (type === 'ou' || type === 'h_ou') return 50000; // 王は絶対守る
+    let value = def.cost || 5;
+    if (def.type === 'evolved') value += 20;
+    return value;
+}
+
+// 指定した座標(tx, ty)がプレイヤー（SENTE）から攻撃されているか判定する
+function isAttackedByPlayer(tx, ty) {
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            const p = board[y][x];
+            if (p && p.owner === SENTE) {
+                // その駒が(tx, ty)に移動可能かチェック
+                if (isMoveValid(p, x, y, tx, ty, false)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function aiMove() {
+    if (isGameOver || isAnimating) return;
+
+    const candidates = [];
+    
+    // 現在のAIの王の位置を特定
+    let kingPos = {x: -1, y: -1};
+    for(let y=0; y<9; y++) for(let x=0; x<9; x++){
+        const p = board[y][x];
+        if(p && p.owner === GOTE && (p.type==='ou'||p.type==='h_ou')) kingPos = {x, y};
+    }
+
+    // --- 盤上の駒の移動評価 ---
+    for (let y = 0; y < BOARD_SIZE; y++) {
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            const p = board[y][x];
+            if (p && p.owner === GOTE) {
+                for (let ty = 0; ty < BOARD_SIZE; ty++) {
+                    for (let tx = 0; tx < BOARD_SIZE; tx++) {
+                        const check = checkMoveOrFusion(p, x, y, tx, ty);
+                        if (check.canMove) {
+                            let score = 0;
+                            const target = board[ty][tx];
+
+                            // 1. 基本スコア
+                            if (target && target.owner === SENTE) {
+                                score += getPieceValue(target.type) * 15; // 駒取りを優先
+                            }
+                            if (check.isFusion) score += 40; // 合体進化を優先
+
+                            // 2. 防衛ロジックの核：移動した結果、王が危険にさらされないか
+                            // もし動かす駒が「王」自身なら、移動先が攻撃されていないかチェック
+                            if (p.type === 'ou' || p.type === 'h_ou') {
+                                if (isAttackedByPlayer(tx, ty)) {
+                                    score -= 100000; // 自殺行為は厳禁
+                                }
+                            } else {
+                                // 王以外の駒を動かした際、そのマスが空くことで「王手」にならないか
+                                // 本来は仮想盤面を作るべきだが、簡易的に「王の周囲を空けすぎない」評価を加える
+                                let distToKing = Math.abs(tx - kingPos.x) + Math.abs(ty - kingPos.y);
+                                if (distToKing <= 2) score += 10; // 王の護衛を評価
+                            }
+
+                            // 3. 前進・中央支配
+                            score += (ty) * 3;
+                            score += (4 - Math.abs(4 - tx));
+
+                            candidates.push({ fx: x, fy: y, tx, ty, score });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- 持ち駒の評価 ---
+    hands[GOTE].forEach((type, index) => {
+        for (let ty = 0; ty < 5; ty++) {
+            for (let tx = 0; tx < BOARD_SIZE; tx++) {
+                const check = checkDropOrFusion(type, tx, ty);
+                if (check.canDrop) {
+                    let score = 10;
+                    if (check.isFusion) score += 30;
+                    // 王の周りに打つ（守り）
+                    let distToKing = Math.abs(tx - kingPos.x) + Math.abs(ty - kingPos.y);
+                    if (distToKing <= 2) score += 20; 
+                    
+                    candidates.push({ handIndex: index, tx, ty, score, isDrop: true });
+                }
+            }
+        }
+    });
+
+    if (candidates.length > 0) {
+        candidates.sort((a, b) => b.score - a.score);
+        // 上位から妥当な手を選択
+        const best = candidates[0]; 
+
+        if (best.isDrop) {
+            tryDrop(best.handIndex, best.tx, best.ty, true);
+        } else {
+            tryMove(best.fx, best.fy, best.tx, best.ty, true);
+        }
+    }
+    
+    endTurn();
+}
+function generateMoveGrid(type, isEnemy) {
+    const movesRef = EVOLVED_MOVES[type] || MOVES[type];
+    if(!movesRef) return '';
+    let gridHtml = '<div class="move-grid">';
+    let isEmperor = (type === 'h_ou');
+    for (let row = -2; row <= 2; row++) for (let col = -2; col <= 2; col++) {
+        let cls = 'grid-cell';
+        if (row === 0 && col === 0) cls += ' grid-center';
+        else {
+            let isStep=false, isSlide=false, isJump=false;
+            for (let m of movesRef) {
+                const targetDx = m[0], targetDy = m[1]; 
+                if (m[2]) { 
+                    const sx = Math.sign(targetDx), sy = Math.sign(targetDy);
+                    if (sx === Math.sign(col) && sy === Math.sign(row)) {
+                        if (sx !== 0 && sy !== 0 && Math.abs(col) !== Math.abs(row)) continue;
+                        isSlide = true;
+                    }
+                } else { 
+                    if (targetDx === col && targetDy === row) {
+                        if (Math.abs(targetDx)>1 || Math.abs(targetDy)>1) isJump = true; else isStep = true;
+                    }
+                }
+            }
+            if (isSlide) cls += ' grid-slide'; else if (isJump) cls += ' grid-jump'; else if (isStep) cls += isEmperor?' grid-swap':' grid-move';
+        }
+        gridHtml += `<div class="${cls}"></div>`;
+    }
+    return gridHtml + '</div>';
+}
+
+function confirmExit() { if(confirm("タイトルに戻りますか？")) switchScreen('screen-title'); }
+
+/* ================= オーディオ管理 ================= */
+const SOUNDS = {
+    bgm: new Audio('assets/bgm.mp3'),
+    capture: new Audio('assets/capture.mp3'),
+    click: new Audio('assets/click.mp3'),
+    evolve: new Audio('assets/evolve.mp3'),
+    move: new Audio('assets/move.mp3'),
+    select: new Audio('assets/select.mp3')
+};
+
+// BGMの設定
+SOUNDS.bgm.loop = true;
+SOUNDS.bgm.volume = 0.5;
+
+// 効果音を再生する関数（連続再生に対応）
+function playSE(key) {
+    if (SOUNDS[key]) {
+        const sound = SOUNDS[key].cloneNode();
+        sound.play().catch(e => console.log("Audio play blocked"));
+    }
+}
+
+// --- 既存の関数にフック（動作を拡張） ---
+
+// 1. ボタンクリック音
+const originalSwitchScreen = window.switchScreen;
+window.switchScreen = function(id) {
+    playSE('click');
+    // BGMの制御
+    if (id === 'screen-game') {
+        SOUNDS.bgm.play().catch(e => console.log("BGM play blocked"));
+    } else if (id === 'screen-title') {
+        SOUNDS.bgm.pause();
+        SOUNDS.bgm.currentTime = 0;
+    }
+    originalSwitchScreen(id);
+};
+
+// 2. 駒選択音
+const originalOnCellClick = window.onCellClick;
+window.onCellClick = function(x, y) {
+    const allowedTurn = isOnlineMatch ? myRole : SENTE;
+    if (turn === allowedTurn && !isGameOver && !isAnimating) {
+        const piece = board[y][x];
+        if (piece && piece.owner === turn && !selected) {
+            playSE('select');
+        }
+    }
+    originalOnCellClick(x, y);
+};
+
+const originalOnHandClick = window.onHandClick;
+window.onHandClick = function(owner, index) {
+    const allowedTurn = isOnlineMatch ? myRole : SENTE;
+    if (owner === allowedTurn && !isGameOver && !isAnimating) {
+        playSE('select');
+    }
+    originalOnHandClick(owner, index);
+};
+
+// 3. 移動音・撃破音・オンライン中継
+const originalTryMove = window.tryMove;
+window.tryMove = function(fx, fy, tx, ty, isAI) {
+    const target = board[ty][tx];
+    const piece = board[fy][fx];
+    const check = checkMoveOrFusion(piece, fx, fy, tx, ty);
+    
+    const result = originalTryMove(fx, fy, tx, ty, isAI);
+    
+    if (result) {
+        if (check.isFusion) {
+            playSE('evolve');
+        } else if (target && target.owner !== piece.owner) {
+            playSE('capture');
+        } else {
+            playSE('move');
+        }
+        
+        if (isOnlineMatch && !isAI) {
+            socket.emit('playerAction', { type: 'move', data: { fx, fy, tx, ty } });
+        }
+    }
+    return result;
+};
+
+// 4. ドロップ音（持ち駒を打つ）・オンライン中継
+const originalTryDrop = window.tryDrop;
+window.tryDrop = function(handIndex, tx, ty, isAI) {
+    const check = checkDropOrFusion(hands[turn][handIndex], tx, ty);
+    const result = originalTryDrop(handIndex, tx, ty, isAI);
+    if (result) {
+        if (check.isFusion) playSE('evolve');
+        else playSE('move');
+
+        if (isOnlineMatch && !isAI) {
+            socket.emit('playerAction', { type: 'drop', data: { handIndex, tx, ty } });
+        }
+    }
+    return result;
+};
+
+// 5. ショップのクリック音
+const originalBuyPack = window.buyPack;
+window.buyPack = function() {
+    playSE('click');
+    originalBuyPack();
+};
+// ==========================================
+//  スキルシステム & クールタイム実装 (修正版)
+// ==========================================
+
+let isSkillMode = false; // スキルターゲット選択中か
+let skillSource = null;  // スキルを使う駒の座標 {x, y}
+
+// 1. 選択時にスキルボタンを表示
+const originalOnCellClickForSkill = window.onCellClick;
+window.onCellClick = function(x, y) {
+    if (isSkillMode) {
+        executeSkillTarget(x, y);
+        return;
+    }
+
+    originalOnCellClickForSkill(x, y);
+
+    const btnContainer = document.getElementById('skill-container');
+    const btnDesc = document.getElementById('skill-desc');
+    
+    if (selected) {
+        const piece = board[selected.y][selected.x];
+        const def = PIECE_DEF[piece.type];
+        
+        if (def && def.skill) {
+            const currentCT = piece.cooldown || 0;
+            btnContainer.style.display = 'block';
+            if (currentCT > 0) {
+                document.getElementById('btn-skill').disabled = true;
+                document.getElementById('btn-skill').innerText = `${def.skill.name} (あと${currentCT}ターン)`;
+                btnDesc.innerText = def.skill.desc;
+            } else {
+                document.getElementById('btn-skill').disabled = false;
+                document.getElementById('btn-skill').innerText = `★ ${def.skill.name} 発動`;
+                btnDesc.innerText = def.skill.desc;
+            }
+            return;
+        }
+    }
+    btnContainer.style.display = 'none';
+    isSkillMode = false;
+};
+
+// 2. スキルボタンが押された時
+document.getElementById('btn-skill').onclick = function() {
+    if (!selected) return;
+    const piece = board[selected.y][selected.x];
+    const def = PIECE_DEF[piece.type];
+    skillSource = { x: selected.x, y: selected.y };
+
+    if (def.skill.type === 'area' || def.skill.type === 'buff') {
+        if (confirm(`【${def.skill.name}】を発動しますか？`)) {
+            executeSkillImmediate(piece, def.skill);
+        }
+    } 
+    else {
+        isSkillMode = true;
+        addLog(`【${def.skill.name}】の対象を選択してください`);
+        playSE('select');
+        render(); // 修正：drawBoard -> render
+    }
+};
+
+// 3. 即時発動型スキルの処理
+function executeSkillImmediate(piece, skillDef) {
+    let logMsg = "";
+    
+    if (skillDef.name === '断罪の旋風') {
+        const directions = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+        let count = 0;
+        directions.forEach(d => {
+            const tx = skillSource.x + d[0], ty = skillSource.y + d[1];
+            if (tx >= 0 && tx < 9 && ty >= 0 && ty < 9) {
+                const target = board[ty][tx];
+                if (target && target.owner !== piece.owner) {
+                    capturePiece(target); 
+                    board[ty][tx] = null;
+                    count++;
+                }
+            }
+        });
+        logMsg = `ガッツの旋風！周囲${count}体の敵を粉砕した！`;
+        playSE('capture');
+    }
+    else if (skillDef.name === '仁王立ち') {
+        piece.buff = { name: 'guardian', duration: 3 }; 
+        logMsg = `ベンケイが仁王立ち！3ターンの間、周囲の味方を守る！`;
+        playSE('evolve'); 
+    }
+
+    if (isOnlineMatch && turn === myRole) {
+        socket.emit('playerAction', { type: 'skill_immediate', data: { sy: skillSource.y, sx: skillSource.x } });
+    }
+
+    finalizeSkill(piece, skillDef, logMsg);
+}
+
+// 4. ターゲット選択型スキルの処理
+function executeSkillTarget(tx, ty) {
+    const piece = board[skillSource.y][skillSource.x];
+    const target = board[ty][tx];
+    const skillDef = PIECE_DEF[piece.type].skill;
+    let success = false;
+    let logMsg = "";
+
+    if (skillDef.name === '神殺しの矢') {
+        if (target && target.owner !== piece.owner) {
+            if (confirm(`${PIECE_DEF[target.type].name}を狙撃しますか？`)) {
+                capturePiece(target);
+                board[ty][tx] = null;
+                logMsg = `ウィリアムの狙撃！${PIECE_DEF[target.type].name}を射抜いた！`;
+                success = true;
+                playSE('capture');
+            }
+        } else {
+            alert("敵の駒を選択してください");
+            return; 
+        }
+    }
+    else if (skillDef.name === 'メテオストライク') {
+        if (confirm(`この場所へメテオストライクを発動しますか？`)) {
+            const directions = [[0,0], [0,-1], [0,1], [-1,0], [1,0]];
+            let count = 0;
+            directions.forEach(d => {
+                const rx = tx + d[0], ry = ty + d[1];
+                if (rx >= 0 && rx < 9 && ry >= 0 && ry < 9) {
+                    const tg = board[ry][rx];
+                    if (tg && tg.owner !== piece.owner) {
+                        capturePiece(tg);
+                        board[ry][rx] = null;
+                        count++;
+                    }
+                }
+            });
+            logMsg = `マーリンのメテオストライク！十字範囲の敵${count}体を粉砕した！`;
+            success = true;
+            playSE('capture');
+        } else {
+            return;
+        }
+    }
+    else if (skillDef.name === '死の舞踏') {
+        if (target && target.owner !== piece.owner) {
+            if (confirm(`${PIECE_DEF[target.type].name}を暗殺し、位置を入れ替わりますか？`)) {
+                capturePiece(target);
+                board[ty][tx] = piece;
+                board[skillSource.y][skillSource.x] = null;
+                logMsg = `ジャックの死の舞踏！対象を即死させ、影に潜んだ！`;
+                success = true;
+                playSE('capture');
+            } else {
+                return;
+            }
+        } else {
+            alert("敵の駒を選択してください");
+            return; 
+        }
+    }
+    else if (skillDef.name === '影鏡') {
+        if (target && target.owner === piece.owner && (tx !== skillSource.x || ty !== skillSource.y)) {
+            if (confirm(`${PIECE_DEF[target.type].name}と入れ替わりますか？`)) {
+                board[skillSource.y][skillSource.x] = target;
+                board[ty][tx] = piece;
+                logMsg = `ハンゾウが忍法・影鏡で位置を入れ替えた！`;
+                success = true;
+                playSE('move');
+            }
+        } else {
+            alert("自分以外の味方の駒を選択してください");
+            return;
+        }
+    }
+
+    if (success) {
+        if (isOnlineMatch && turn === myRole) {
+            socket.emit('playerAction', { type: 'skill_target', data: { sy: skillSource.y, sx: skillSource.x, tx, ty } });
+        }
+        finalizeSkill(piece, skillDef, logMsg);
+    } else {
+        isSkillMode = false;
+        render(); // 修正：drawBoard -> render
+    }
+}
+
+// 5. スキル終了処理（共通）
+function finalizeSkill(piece, skillDef, logMsg) {
+    piece.cooldown = skillDef.ct; 
+    addLog(logMsg, piece.owner);
+    
+    selected = null;
+    isSkillMode = false;
+    possibleMoves = [];
+    document.getElementById('skill-container').style.display = 'none';
+    
+    endTurn(); // 修正：changeTurn -> endTurn
+    render();  // 修正：drawBoard -> render
+}
+
+// 6. ターン開始時のCT減少処理 & バフ経過処理
+const originalEndTurnForSkill = endTurn; // 修正：changeTurn -> endTurn
+endTurn = function() {
+    originalEndTurnForSkill(); 
+
+    for (let y = 0; y < 9; y++) {
+        for (let x = 0; x < 9; x++) {
+            const p = board[y][x];
+            if (p && p.owner === turn) {
+                if (p.cooldown > 0) p.cooldown--;
+                
+                if (p.buff) {
+                    p.buff.duration--;
+                    if (p.buff.duration <= 0) {
+                        addLog(`${PIECE_DEF[p.type].name}の${p.buff.name}効果が切れた。`, p.owner);
+                        p.buff = null;
+                    }
+                }
+            }
+        }
+    }
+};
+
+// 7. ベンケイの「仁王立ち」防御ロジック
+const originalCheckMove = checkMoveOrFusion;
+checkMoveOrFusion = function(piece, fx, fy, tx, ty) {
+    const target = board[ty][tx];
+
+    if (target && target.owner !== piece.owner) {
+        for (let y = 0; y < 9; y++) {
+            for (let x = 0; x < 9; x++) {
+                const p = board[y][x];
+                if (p && p.owner === target.owner && p.type === 'r_be' && p.buff && p.buff.name === 'guardian') {
+                    const dist = Math.max(Math.abs(tx - x), Math.abs(ty - y));
+                    if (dist <= 2 && !(x === tx && y === ty)) {
+                        return { canMove: false, reason: "benkei" };
+                    }
+                }
+            }
+        }
+    }
+    return originalCheckMove(piece, fx, fy, tx, ty);
+};
+// ==========================================
+//  駒情報（UIパネル）の拡張表示ロジック
+// ==========================================
+
+// === 属性データの定義 ===
+const PIECE_ATTR = {
+    'fu': '歩卒', 'r_fu': '歩卒', 'r_ar': '歩卒', 'r_gd': '歩卒',
+    'ky': '騎兵', 'ke': '騎兵',
+    'r_sc': '遊撃',
+    'ka': '重駒', 'hi': '重駒',
+    'gi': '一般', 'ki': '一般', 'ou': '王',
+    'r_vt': '精鋭', 'r_sn': '精鋭', 'r_sp': '精鋭', 'r_vd': '精鋭',
+    'to': '精鋭', 'ny': '精鋭', 'nk': '精鋭', 'ng': '精鋭', 'um': '精鋭', 'ry': '精鋭',
+    'h_ky': '大将', 'h_ke': '大将', 'h_gi': '大将', 'h_ki': '大将', 'h_ka': '大将', 'h_hi': '大将', 'h_ou': '大将',
+    'r_gm': '大将', 'r_mc': '大将', 'r_pk': '大将', 'r_ig': '大将',
+    'r_gu': '伝説', 'r_wi': '伝説', 'r_ha': '伝説', 'r_be': '伝説'
+};
+
+// 既存の表示関数(updateDetailPanel)をラップして情報を追加
+if (typeof window.updateDetailPanel === 'function') {
+    const originalUpdateDetailPanel = window.updateDetailPanel;
+    window.updateDetailPanel = function(type, panelId) {
+        // 先に元の処理（移動範囲グリッドの描画など）を実行させる
+        originalUpdateDetailPanel(type, panelId);
+        
+        if (!type || !PIECE_DEF[type]) return;
+        const def = PIECE_DEF[type];
+        
+        // 現在表示されているパネル（対局画面かデッキ画面か）を取得
+        const panel = document.getElementById(panelId);
+        if (!panel) return;
+        
+        // 1. 属性の表示
+        const attrEl = panel.querySelector('.detail-attr');
+        if (attrEl) attrEl.innerText = `【${PIECE_ATTR[type] || '不明'}】`;
+
+        // 2. スキルの表示
+        const skillEl = panel.querySelector('.detail-skill');
+        if (skillEl) {
+            if (def.skill) {
+                skillEl.innerHTML = `<span style="font-weight:bold;">★スキル: ${def.skill.name}</span> (CT:${def.skill.ct})<br>${def.skill.desc}`;
+                skillEl.style.display = 'block';
+            } else {
+                skillEl.style.display = 'none';
+            }
+        }
+
+        // 3. レシピ・成り・覚醒条件の表示を上書き
+        const recipesEl = panel.querySelector('.detail-recipes');
+        if (recipesEl) {
+            let html = '';
+            
+            const linkStyle = "font-weight:bold; cursor:pointer; color:#f1c40f; text-decoration:underline;";
+
+            // ⓪ 成り（正規軍）
+            if (typeof PROMOTION_MAP !== 'undefined' && PROMOTION_MAP[type]) {
+                const promoType = PROMOTION_MAP[type];
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#9b59b6;">[成り]</strong><br>`;
+                html += `敵陣へ進入 = <span style="${linkStyle}" onclick="updateDetailPanel('${promoType}', '${panelId}')">${PIECE_DEF[promoType].name}</span><br></div>`;
+            }
+            
+            // ⓪-b 成り駒の逆引き
+            if (typeof UN_PROMOTION_MAP !== 'undefined' && UN_PROMOTION_MAP[type]) {
+                const unpromoType = UN_PROMOTION_MAP[type];
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#7f8c8d;">[元の姿]</strong><br>`;
+                html += `成駒 = <span style="${linkStyle}" onclick="updateDetailPanel('${unpromoType}', '${panelId}')">${PIECE_DEF[unpromoType].name}</span><br></div>`;
+            }
+
+            // ① 固有進化レシピ（正規軍など）
+            const related = FUSION_RECIPES.filter(r => r.ingredients.includes(type));
+            if (related.length > 0) {
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#2ecc71;">[固有進化]</strong><br>`;
+                related.forEach(r => {
+                    const partner = r.ingredients[0] === type ? r.ingredients[1] : r.ingredients[0];
+                    html += `+ <span style="cursor:pointer; text-decoration:underline;" onclick="updateDetailPanel('${partner}', '${panelId}')">${PIECE_DEF[partner].name}</span> = <span style="${linkStyle}" onclick="updateDetailPanel('${r.result}', '${panelId}')">${r.name}</span><br>`;
+                });
+                html += `</div>`;
+            }
+
+            // ② 混成進化レシピ（反乱軍 Rank 2 + 大将）
+            const rank2Map = { 'r_vt': 'r_gm', 'r_sn': 'r_mc', 'r_sp': 'r_pk', 'r_vd': 'r_ig' };
+            if (rank2Map[type]) {
+                const r2Type = rank2Map[type];
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#3498db;">[属性・混成進化]</strong><br>`;
+                html += `+ 【大将】属性駒 = <span style="${linkStyle}" onclick="updateDetailPanel('${r2Type}', '${panelId}')">${PIECE_DEF[r2Type].name}</span><br></div>`;
+            }
+            // 大将駒をクリックした場合の逆引き表示
+            if (typeof TAISHO_PIECES !== 'undefined' && TAISHO_PIECES.includes(type)) {
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#3498db;">[混成進化の核]</strong><br>`;
+                html += `味方の【精鋭】(反乱軍Rank2)と合体可能<br></div>`;
+            }
+
+            // ③ 覚醒条件（反乱軍 Rank 1 -> 2）
+            if (typeof AWAKEN_MAP !== 'undefined' && AWAKEN_MAP[type]) {
+                const aType = AWAKEN_MAP[type];
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#e67e22;">[覚醒条件]</strong><br>`;
+                html += `敵を撃破 = <span style="${linkStyle}" onclick="updateDetailPanel('${aType}', '${panelId}')">${PIECE_DEF[aType].name}</span><br></div>`;
+            }
+
+            // ④ 英雄覚醒条件（反乱軍 Rank 2, 4+ -> 5）
+            if (typeof HERO_AWAKEN_MAP !== 'undefined' && HERO_AWAKEN_MAP[type]) {
+                const hType = HERO_AWAKEN_MAP[type];
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#e74c3c;">[英雄覚醒]</strong><br>`;
+                html += `敵の【大将】を討伐 = <span style="${linkStyle}" onclick="updateDetailPanel('${hType}', '${panelId}')">${PIECE_DEF[hType].name}</span><br></div>`;
+            }
+            
+            // ⑤ 逆引き（進化後から素材へ）
+            // 固有進化
+            const srcRecipe = FUSION_RECIPES.find(r => r.result === type);
+            if (srcRecipe) {
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#7f8c8d;">[素材]</strong><br>`;
+                html += `<span style="cursor:pointer; text-decoration:underline;" onclick="updateDetailPanel('${srcRecipe.ingredients[0]}', '${panelId}')">${PIECE_DEF[srcRecipe.ingredients[0]].name}</span> + <span style="cursor:pointer; text-decoration:underline;" onclick="updateDetailPanel('${srcRecipe.ingredients[1]}', '${panelId}')">${PIECE_DEF[srcRecipe.ingredients[1]].name}</span><br></div>`;
+            }
+            // 覚醒後
+            const srcAwaken = Object.keys(AWAKEN_MAP).find(k => AWAKEN_MAP[k] === type);
+            if (srcAwaken) {
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#7f8c8d;">[覚醒元]</strong><br>`;
+                html += `<span style="cursor:pointer; text-decoration:underline;" onclick="updateDetailPanel('${srcAwaken}', '${panelId}')">${PIECE_DEF[srcAwaken].name}</span> が敵を撃破<br></div>`;
+            }
+            // 英雄覚醒後
+            const srcHero = Object.keys(HERO_AWAKEN_MAP).filter(k => HERO_AWAKEN_MAP[k] === type);
+            if (srcHero.length > 0) {
+                html += `<div style="margin-bottom: 6px;"><strong style="color:#7f8c8d;">[英雄覚醒元]</strong><br>`;
+                srcHero.forEach(k => {
+                    html += `<span style="cursor:pointer; text-decoration:underline;" onclick="updateDetailPanel('${k}', '${panelId}')">${PIECE_DEF[k].name}</span><br>`;
+                });
+                html += `</div>`;
+            }
+            
+            recipesEl.innerHTML = html;
+        }
+    };
+}
+</script>
+</body>
+</html>
